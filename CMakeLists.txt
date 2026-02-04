@@ -1,39 +1,44 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.18)
+project(Cuda_MCTS_Duelist LANGUAGES CXX CUDA)
 
-# 1. Name your project
-project(CudaMctsDuelist LANGUAGES CXX)
-
-# 2. Require C++20 for Coroutines support
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-# 3. Use FetchContent to download Asio automatically
+# Fetching Full Boost (we're interested in 'asio' for now)
 include(FetchContent)
-
 FetchContent_Declare(
-  asio
-  GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
-  GIT_TAG        asio-1-30-2  # The stable version tag
+  boost
+  URL https://github.com/boostorg/boost/releases/download/boost-1.84.0/boost-1.84.0.tar.gz
 )
 
-# This makes the asio headers available and creates an 'asio' target
-FetchContent_MakeAvailable(asio)
+FetchContent_MakeAvailable(boost)
 
-# 4. Define your executables (Server and Client)
-add_executable(server server.cpp)
-add_executable(client client.cpp)
+# Five Generations of NVIDIA Support (known as Fat Binary)
+# Targets Architecture:
+# Maxwell (5.2), Pascal (6.1), Turing (7.5), Ampere (8.6), Ada (8.9), Blackwell (10.0) and PTX (100-virtual, for future generations)
+set(CMAKE_CUDA_ARCHITECTURES 52 61 75 86 89 100 100-virtual)
 
-# 5. Link Asio and set definitions
-# We use INTERFACE because Asio is header-only
-target_link_libraries(server PRIVATE asio)
-target_compile_definitions(server PRIVATE ASIO_STANDALONE)
+# 3. Project Files
+set(SOURCES
+    src/main.cpp
+    src/kernel.cu
+)
 
-target_link_libraries(client PRIVATE asio)
-target_compile_definitions(client PRIVATE ASIO_STANDALONE)
+add_executable(Cuda_MCTS_Duelist ${SOURCES})
 
-# 6. Windows-specific: Link required networking libraries (Winsock)
-if(WIN32)
-    target_link_libraries(server PRIVATE ws2_32 mswsock)
-    target_link_libraries(client PRIVATE ws2_32 mswsock)
-endif()
+# 4. Compiler Settings
+set_target_properties(Cuda_MCTS_Duelist PROPERTIES 
+    CXX_STANDARD 17
+    CUDA_STANDARD 17
+    CUDA_SEPARABLE_COMPILATION ON
+)
+
+# Definitions
+target_compile_definitions(Cuda_MCTS_Duelist PRIVATE USE_CUDA)
+
+# Linking Boost and Threads
+find_package(Threads REQUIRED)
+target_link_libraries(Cuda_MCTS_Duelist PRIVATE boost Threads::Threads)
+
+# Optimization (Optional but recommended for MCTS, with O3 offering the highest performance)
+target_compile_options(Cuda_MCTS_Duelist PRIVATE 
+    $<$<COMPILE_LANGUAGE:CXX>:-O3>
+    $<$<COMPILE_LANGUAGE:CUDA>:-O3>
+)
