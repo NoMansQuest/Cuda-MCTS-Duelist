@@ -9,7 +9,7 @@
 /// @param d_states States for our threads. We need one state per thread we intend to launch.
 /// @param total_kernels Total kernels to generate state for (also indicates the size of the @see{states} array.
 /// @param seed Randomizer see
-__global__ void init_rand_kernel(curandState* d_states, int total_kernels, unsigned long seed);
+__global__ void init_rand_kernel(curandState* d_states, int total_kernels, uint64_t seed);
 
 /// @brief Returns the free row index for a given column.
 /// @note Since the function code is rather small in size, it's best to inline it for performance reasons.

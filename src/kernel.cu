@@ -6,15 +6,15 @@
 #include <algorithm>
 #include "kernel.h"
 
-constexpr int row_count = 6;
-constexpr int col_count = 7;
-constexpr int win_count = 4;
-constexpr int get_flat_memory_index(int row, int col) { return ((row * 7) + col); } 
+#define row_count 6
+#define col_count 7
+#define win_count 4
+#define connect4_matrix_size (row_count * col_count)
+inline __device__ constexpr int get_flat_memory_index(int row, int col) { return ((row * 7) + col); } 
 template <typename T> constexpr T min(T a, T b) { return (a < b) ? a : b; }
 template <typename T> constexpr T max(T a, T b) { return (a > b) ? a : b; }
 
 /// @brief Number of elements in total in Connect4 matrix
-constexpr int connect4_matrix_size = row_count * col_count;
 
 // Note: Given that the actual state is identical for all threads, best to have
 // it communicated via 'constant' memory.
@@ -177,15 +177,17 @@ __global__ void game_prediction_kernel(
     // We now need to try various randomized combination 
     // with the first move being a disc inserted at column 'targetColumn'
     // Generate a floating point number between 0.0 and 1.0
-    auto emptySlotsLeft = true;
-    auto first_move = true;
     auto game_won = false;
     auto chosen_column = first_move_column;
 
     auto our_turn = true;
     auto opponent_disc_type = (our_disc_type == 1) ? 2 : 1;
-    auto total_available_slots = 0;
 
+    auto total_available_slots = 0;
+    for (auto col_hover = 0; col_hover < col_count; col_hover++)
+    {
+        total_available_slots += (get_free_row_index_for_column(shared_mem_matrix, col_hover) + 1);
+    }
 
     // Could we even play? Is the first-move column full?
     if (get_free_row_index_for_column(shared_mem_matrix, first_move_column) != -1)
