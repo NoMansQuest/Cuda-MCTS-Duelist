@@ -22,14 +22,18 @@ set(CMAKE_CUDA_ARCHITECTURES 52 61 75 86 89 100 100-virtual)
 
 # Project Files
 set(SOURCES
-src/main.cpp
-src/kernel.cu
+    src/main.cpp
+    src/kernel.cu
 )
 
 add_executable(Cuda_MCTS_Duelist ${SOURCES})
 
 # Include boost folders
-target_include_directories(Cuda_MCTS_Duelist PRIVATE ${Boost_INCLUDE_DIRS})
+target_include_directories(Cuda_MCTS_Duelist PRIVATE
+    ${Boost_SOURCE_DIR}
+    ${Boost_SOURCE_DIR}/libs/asio/include
+    ${Boost_SOURCE_DIR}/libs/system/include
+)
 
 # Compiler Settings
 set_target_properties(Cuda_MCTS_Duelist PROPERTIES 

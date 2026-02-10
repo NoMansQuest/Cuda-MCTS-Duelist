@@ -51,7 +51,7 @@ __host__ cudaError_t free_memory(curandState* d_states, int* d_success_table)
     return status;
 }
 
-__global__ void init_rand_kernel(curandState* d_states, int total_kernels, unsigned long seed)
+__global__ void init_rand_kernel(curandState* d_states, int total_kernels, uint64_t seed)
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid < total_kernels) {
@@ -278,7 +278,7 @@ __host__ bool play_game(
 
     // First we need to run our cuRAND initialization kernel
     auto duration = std::chrono::high_resolution_clock::now().time_since_epoch();
-    unsigned long long nano_seed = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();    
+    uint64_t nano_seed = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();    
 
     init_rand_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_states, totalThreadsToLaunch, nano_seed);    
     cudaDeviceSynchronize();
