@@ -10,78 +10,147 @@
 #include <string>
 #include <stdexcept>
 
+#include "kernel.h"
+#include "chat_session.h"
+
 #ifndef __cpp_impl_coroutine
 #error "Your compiler does not support C++20 coroutines!"
 #endif  
 
-using asio::ip::tcp;
+const std::string help_text = R"help(
+    CUDA Monte-Carlo Tree Search (MCTS) Duelist\n
+    Author: Nasser Ghoseiri
+    Date: Feb 10th 2026
+
+    Description:
+        This program demonstrates the use of CUDA kernels within a C++ project. The goal is to have
+        two instances of this app, one running as server and one as client, compete in a turn-based "Connect 4" game
+        while using CUDA GPU acceleration to predict their best next move.
+
+        Interprocess communication is achieved via TCP/IP connection (using boost::asio). The client makes the first
+        move and communicates it to the server. The server makes its next move and communicates it back to the client.
+        This back-and-forth continues until one party wins, concluding the game session.
+
+        On the CUDA kernel side, each instances runs 7,000 threads (one thousand per possible move on the board) to try various
+        combinations of moves using Monte-Carlo algorithm. The column that amasses the highest number of predicted wins will then
+        be chosen as the next best move.
+    
+    Build system:
+        This executable is built using CMake, supporting both Windows and Linux. 
+
+    Commandline Arguments:
+        --server                : Run instance as server, actively listening for an incoming TCP connection on provided port
+        --port PORT_NUMBER      : Port number. In server mode, this is the port we listen to. In client mode, this is the port we connect to.
+        --client                : Run instance as client, make a TCP connection to the provided port and IP address.
+        --ip IP_ADDRESS         : IP address to connect to (only valid in client mode).
+
+    )help";
 
 
+/// @brief Application runs as client.
+/// @param io_context Boost::Asio IO context.
+/// @param ip_address IP address to connect to.
+/// @param port Remote server port to connect to.
 void duelist_client_mode(
     boost::asio::io_context& io_context,
-    std::string ip_address,
+    std::string&& ip_address,
     uint16_t port)
-{
+{    
+    // Introduction
+    std::cout << "CUDA MCTS Duelist" << std::endl;
+    std::cout << "Starting as client, connecting to " << ip_address << ":" << port << "..." << std::endl;    
     
-    boost::system::error_code conn_error_code;
-    bool connected = false;
+    try {
+        boost::asio::ip::tcp::resolver resolver(io_context);
+        boost::system::error_code ec;
 
-    steady_timer asio::timer(io);
-
-    // start async connect
-    boost::asio::async_connect(sock, endpoints,
-        [&](const boost::system::error_code& error_code_, auto){
-            conn_error_code = error_code_;
-            connected = !error_code_;
-
-            // stop the timer if connect finished
-            timer.cancel();
-        });
-
-    // start timeout timer
-    timer.expires_after(timeout);
-    timer.async_wait([&](const boost::system::error_code& ec){
-        if (!ec && !connected) {
-
-            // Timer fired -> abort the connect
-            // closing the socket will cause the connect handler to complete with an error
-            sock.close();
+        // Resolve the address/port
+        auto endpoints = resolver.resolve(ip_address, std::to_string(port), ec);
+        if (ec) {
+            std::cout << "Resolve failed: " << ec.message() << "\n";
+            return;
         }
-    });
 
-    // run until the above handlers finish (this runs handlers on current thread)
-    io.run();
-    io.restart(); // if io_context will be reused
+        // Create socket and connect (blocking)
+        boost::asio::ip::tcp::socket socket(io_context);
+        boost::asio::connect(socket, endpoints, ec);
+        if (ec) {
+            std::cout << "Connect failed: " << ec.message() << "\n";
+            return;
+        }
 
-    tcp::resolver resolver(io_context);
-    auto endpoints = resolver.resolve(host, port);
-    boost::asio::connect(socket_, endpoints);
-    std::cout << "Connected to " << host << ":" << port << "\n\n";
+        // Connected: report remote endpoint
+        auto remote_ep = socket.remote_endpoint(ec);
+        if (!ec) {
+            std::cout << "Connected to " << remote_ep.address().to_string()
+                      << ":" << remote_ep.port() << "\n";
+        } else {
+            std::cout << "Connected (remote endpoint unavailable): " << ec.message() << "\n";
+        }
+
+        // TODO: hand `socket` to your ChatSession or other logic here.
+        // e.g. auto session = std::make_shared<ChatSession>(std::move(socket));
+        // session->start();
+
+        chat_session session(std::move(socket), nullptr);
+        session.start();    
+        
+        // As client, we need to wait for the first move by the remote. Server makes the first move...
+        session.
+
+
+
+    } catch (const std::exception& ex) {
+        std::cerr << "Exception in client: " << ex.what() << "\n";
+    }
 
     auto session = std::make_shared<ChatSession>(std::move(socket));
     session->start();
 }
 
 
+/// @brief Application runs as server
+/// @param io_context Boost::Asio IO context.
+/// @param port Port to listen to for incoming connection.
 void duelist_server_mode(
     boost::asio::io_context& io_context,
     uint16_t port)
 {
+    // Introduction
+    std::cout << "CUDA MCTS Duelist" << std::endl;
+    std::cout << "Starting as server, awaiting connection on port " << port << "..." << std::endl;
+
     try
     {
         boost::asio::io_context io_context;
 
-        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 4444));
-        std::cout << "Server listening on port 4444...\n";
+        boost::asio::ip::tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
+        std::cout << "Server listening on port " << port << "..." << std::endl;
 
-        tcp::socket socket(io_context);
+        boost::asio::ip::tcp::socket socket(io_context);
         acceptor.accept(socket);
 
-        auto session = std::make_shared<ChatSession>(std::move(socket));
-        session->start();
+        // Let the user know
+        boost::system::error_code remote_endpoint_error_code;
+        auto remote_endpoint = socket.remote_endpoint(remote_endpoint_error_code);
 
-        std::cout << "Client connected. Type messages to send. Type 'disconnect' or 'quit' to close.\n\n";
+        if (!remote_endpoint_error_code) {
+            std::cout << "Connection established with " 
+                << remote_ep.address().to_string() << ":"
+                << remote_ep.port() << "..." 
+                << std::endl;
+        }
+        else{
+            std::cout << "Connection established (failed to obtain remote endpoint: " 
+                << remote_endpoint_error_code.message() 
+                << ")" << std::endl; 
+        }        
 
+        chat_session session(std::move(socket), nullptr);
+        session->start();        
+
+        // The game starts here... we make the first move, communicate it to the
+        // opponent and wait for their action.
         std::string line;
         while (std::getline(std::cin, line))
         {
@@ -118,28 +187,6 @@ void duelist_server_mode(
         return 1;
     }
 }
-
-const std::string help_text = R"help(
-    CUDA Monte-Carlo Tree Search (MCTS) Duelist\n
-    Author: Nasser Ghoseiri
-    Date: Feb 10th 2026
-
-    Description:
-        This program demonstrates the use of CUDA kernels within a C++ project. The goal is to have
-        two instances of this app, one running as server and one as client, play the turn-based "Connect 4" game
-        and using CUDA GPU acceleration to predict the best next move.
-    
-    Build system:
-        This executable is built using CMake, supporting both Windows and Linux. 
-
-    Commandline Arguments:
-        --server                : Run instance as server, actively listening for an incoming TCP connection on provided port
-        --port PORT_NUMBER      : Port number. In server mode, this is the port we listen to. In client mode, this is the port we connect to.
-        --client                : Run instance as client, make a TCP connection to the provided port and IP address.
-        --ip IP_ADDRESS         : IP address to connect to (only valid in client mode).
-
-    )help";
-
 
 /// @brief Parse arguments passed to the command line.
 /// @param argc Number of arguments available in "args"
@@ -238,19 +285,20 @@ bool parse_arguments(
 int main(int argc, char *args[])
 {
     auto server_mode = false;
-    uint16_t port = 0;
     bool asking_for_help = (argc == 0);
-    std::string remote_port;
+    std::string remote_ip;
+    uint16_t port = 0;
 
     if (!parse_arguments(argc, args, remote_ip, port, asking_for_help, server_mode))
     {        
         return 0;
     }
 
-    
-
-
-    
+    boost::asio::io_context io_context_;
+    if (server_mode)
+        duelist_server_mode(io_context_, port)
+    else
+        duelist_client_mode(io_context_, std::move(remote_ip), port);    
 
     return 0;
 }

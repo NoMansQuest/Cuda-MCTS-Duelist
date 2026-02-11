@@ -6,10 +6,10 @@
 #include <algorithm>
 #include "kernel.h"
 
-#define row_count 6
-#define col_count 7
-#define win_count 4
-#define connect4_matrix_size (row_count * col_count)
+#define ROW_COUNT 6
+#define COL_COUNT 7
+#define WIN_COUNT 4
+#define CONNECT4_MATRIX_SIZE (ROW_COUNT * COL_COUNT)
 inline __device__ constexpr int get_flat_memory_index(int row, int col) { return ((row * 7) + col); } 
 template <typename T> constexpr T min(T a, T b) { return (a < b) ? a : b; }
 template <typename T> constexpr T max(T a, T b) { return (a > b) ? a : b; }
@@ -18,9 +18,9 @@ template <typename T> constexpr T max(T a, T b) { return (a > b) ? a : b; }
 
 // Note: Given that the actual state is identical for all threads, best to have
 // it communicated via 'constant' memory.
-__constant__ int connect4_matrix_data[connect4_matrix_size];
+__constant__ int connect4_matrix_data[CONNECT4_MATRIX_SIZE];
 
-__host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int totalThreads)
+cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int totalThreads)
 {
     *d_states = nullptr;
     *d_success_table = nullptr;
@@ -31,7 +31,7 @@ __host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_tab
         return status;
     }
 
-    status = cudaMalloc(d_success_table, sizeof(int) * col_count);
+    status = cudaMalloc(d_success_table, sizeof(int) * COL_COUNT);
     if (status != cudaSuccess)
     {
         cudaFree(*d_states);
@@ -40,7 +40,7 @@ __host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_tab
     return status;    
 }
 
-__host__ cudaError_t free_memory(curandState* d_states, int* d_success_table)
+cudaError_t free_memory(curandState* d_states, int* d_success_table)
 {
     auto status = cudaFree(d_states);
     if (status != cudaSuccess)
@@ -66,8 +66,8 @@ __device__ bool check_if_won(int* d_matrix, int new_disc_row, int new_disc_colum
 
     // Test horizontal
     int totalCountedSoFar = 0;
-    for (int col_scan = max(0, new_disc_column - (win_count - 1)); 
-         col_scan < std::min(col_count, new_disc_column + win_count); 
+    for (int col_scan = max(0, new_disc_column - (WIN_COUNT - 1)); 
+         col_scan < std::min(COL_COUNT, new_disc_column + WIN_COUNT); 
          col_scan++)
     {
         auto currentDiscType = d_matrix[get_flat_memory_index(new_disc_row, col_scan)];
@@ -80,8 +80,8 @@ __device__ bool check_if_won(int* d_matrix, int new_disc_row, int new_disc_colum
 
     // Test vertical
     totalCountedSoFar = 0;
-    for (int row_scan = std::max(0, new_disc_row - (win_count - 1));
-         row_scan < std::min(row_count, new_disc_row + win_count); 
+    for (int row_scan = std::max(0, new_disc_row - (WIN_COUNT - 1));
+         row_scan < std::min(ROW_COUNT, new_disc_row + WIN_COUNT); 
          row_scan++)
     {
         auto currentDiscType = d_matrix[get_flat_memory_index(row_scan, new_disc_column)];
@@ -97,17 +97,17 @@ __device__ bool check_if_won(int* d_matrix, int new_disc_row, int new_disc_colum
     int start_row = new_disc_row - min(new_disc_row, new_disc_column);
     int start_col = new_disc_column - min(new_disc_row, new_disc_column);
 
-    for (int i = 0; i < win_count * 2 - 1; ++i) 
+    for (int i = 0; i < WIN_COUNT * 2 - 1; ++i) 
     {  
         // Scan possible range
         int r = start_row + i, c = start_col + i;
-        if (r < 0 || r >= row_count || c < 0 || c >= col_count) 
+        if (r < 0 || r >= ROW_COUNT || c < 0 || c >= COL_COUNT) 
             continue;
 
         auto current = d_matrix[get_flat_memory_index(r, c)];
         totalCountedSoFar = (current == our_disc_type) ? totalCountedSoFar + 1 : 0;
 
-        if (totalCountedSoFar >= win_count)
+        if (totalCountedSoFar >= WIN_COUNT)
         {
             return true;
         }
@@ -115,18 +115,18 @@ __device__ bool check_if_won(int* d_matrix, int new_disc_row, int new_disc_colum
 
     // Anti-diagonal (top-right to bottom-left)
     totalCountedSoFar = 0;
-    start_row = new_disc_row - min(new_disc_row, col_count - 1 - new_disc_column);
-    start_col = new_disc_column + min(new_disc_row, col_count - 1 - new_disc_column);
+    start_row = new_disc_row - min(new_disc_row, COL_COUNT - 1 - new_disc_column);
+    start_col = new_disc_column + min(new_disc_row, COL_COUNT - 1 - new_disc_column);
 
-    for (int i = 0; i < win_count * 2 - 1; ++i) 
+    for (int i = 0; i < WIN_COUNT * 2 - 1; ++i) 
     {
         int r = start_row + i, c = start_col - i;
-        if (r < 0 || r >= row_count || c < 0 || c >= col_count) 
+        if (r < 0 || r >= ROW_COUNT || c < 0 || c >= COL_COUNT) 
             continue;
 
         auto current = d_matrix[get_flat_memory_index(r, c)];
         totalCountedSoFar = (current == our_disc_type) ? totalCountedSoFar + 1 : 0;
-        if (totalCountedSoFar >= win_count) 
+        if (totalCountedSoFar >= WIN_COUNT) 
         {
             return true;
         }
@@ -138,7 +138,7 @@ __device__ bool check_if_won(int* d_matrix, int new_disc_row, int new_disc_colum
 
 __device__ inline int get_free_row_index_for_column(int* d_matrix, int column) // Inlining this is a good idea
 {
-    for (int row = row_count - 1; row >= 0; row--)
+    for (int row = ROW_COUNT - 1; row >= 0; row--)
     {
         if (d_matrix[get_flat_memory_index(row, column)] == 0) 
             return row;        
@@ -161,14 +161,14 @@ __global__ void game_prediction_kernel(
 {
     int threadId = blockIdx.x * blockDim.x + threadIdx.x;
     int threadIdInBlock = threadIdx.x;
-    int first_move_column = threadId % col_count;       
+    int first_move_column = threadId % COL_COUNT;       
     extern __shared__ int shared_memory[];
 
     // Our slice in shared memory
-    auto shared_mem_matrix = (int*)(shared_memory + (threadIdInBlock * connect4_matrix_size));
+    auto shared_mem_matrix = (int*)(shared_memory + (threadIdInBlock * CONNECT4_MATRIX_SIZE));
 
     // Copy data from constant memory containing actual state to shared memory
-    for (auto hover = 0; hover < connect4_matrix_size; hover++)
+    for (auto hover = 0; hover < CONNECT4_MATRIX_SIZE; hover++)
     {   
         shared_mem_matrix[hover] = *(((int*)connect4_matrix_data) + hover);
     }
@@ -184,7 +184,7 @@ __global__ void game_prediction_kernel(
     auto opponent_disc_type = (our_disc_type == 1) ? 2 : 1;
 
     auto total_available_slots = 0;
-    for (auto col_hover = 0; col_hover < col_count; col_hover++)
+    for (auto col_hover = 0; col_hover < COL_COUNT; col_hover++)
     {
         total_available_slots += (get_free_row_index_for_column(shared_mem_matrix, col_hover) + 1);
     }
@@ -200,7 +200,7 @@ __global__ void game_prediction_kernel(
             auto free_slot_row_index = get_free_row_index_for_column(shared_mem_matrix, chosen_column);
             if (free_slot_row_index == -1)
             {                
-                chosen_column = curand(&d_states[threadId]) % col_count;
+                chosen_column = curand(&d_states[threadId]) % COL_COUNT;
                 continue;
             }
 
@@ -221,7 +221,7 @@ __global__ void game_prediction_kernel(
             // Note: This could be further optimized to only consider empty columns, as the next random value
             // may hit a full column. The objective here is to demonstrate how the GPU could brute-force the 
             // game-board, so this optimization is omitted (among many other possible optimizations).
-            chosen_column = curand(&d_states[threadId]) % col_count;
+            chosen_column = curand(&d_states[threadId]) % COL_COUNT;
 
             // One more slot was occupied, add this
             total_available_slots--;
@@ -238,10 +238,10 @@ __global__ void game_prediction_kernel(
     __syncthreads(); 
 }
 
-__host__ bool play_game(
-    std::array<int, 42> current_board_state,
+bool play_game(
+    std::array<int, CONNECT4_MATRIX_SIZE> current_board_state,
     int our_disc_type,
-    std::array<int, 7>& out_success_per_column,
+    std::array<int, COL_COUNT>& out_success_per_column,
     int& out_best_move_column,
     bool& out_next_move_wins)
 {
@@ -284,12 +284,12 @@ __host__ bool play_game(
     cudaDeviceSynchronize();
 
     // Now run the game-prediction engine
-    auto shared_memory_size = threadsPerBlock * connect4_matrix_size * sizeof(int);
+    auto shared_memory_size = threadsPerBlock * CONNECT4_MATRIX_SIZE * sizeof(int);
     game_prediction_kernel<<<blocksPerGrid, threadsPerBlock, shared_memory_size>>>(d_states, d_success_table, our_disc_type);
     cudaDeviceSynchronize();
 
     // We now need to copy the data from d_success_table to out_success_per_column
-    cudaMemcpy(out_success_per_column.data(), d_success_table, sizeof(int) * col_count, cudaMemcpyDeviceToHost);
+    cudaMemcpy(out_success_per_column.data(), d_success_table, sizeof(int) * COL_COUNT, cudaMemcpyDeviceToHost);
 
     // Gather success data
     int highest_score = 0;

@@ -44,7 +44,9 @@ public:
     comm_result_t start();
 
     /// @brief Send a message (thread-safe) to the remote party.
-    comm_result_t send(const std::string& message);
+    comm_result_t send_message(const std::string& message);
+
+    comm_result_t wait_for_message()
 
     /// @brief Gracefully close the connection. Async read operation is also stopped.
     comm_result_t disconnect();

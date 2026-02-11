@@ -1,9 +1,12 @@
 #ifndef CUDA_MCTS_DUELIST_KERNEL_H__
 #define CUDA_MCTS_DUELIST_KERNEL_H__
 
+#include <array>
+
+#ifdef __CUDACC__
+
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-#include <array>
 
 /// @brief Kernel initializes cuRAND states for the threads we need
 /// @param d_states States for our threads. We need one state per thread we intend to launch.
@@ -34,17 +37,6 @@ __device__ inline bool is_column_full(int* d_matrix, int column);
 /// @return 'True' if the new disc makes us the winner, false otherwise.
 __device__ bool check_if_won(int* d_matrix, int new_disc_row, int new_disc_column);
 
-/// @brief Allocate device memory needed by the kernels
-/// @param d_states cuRAND states to be allocated (one per thread)
-/// @param d_success_table An array of seven entries to hold number of successful wins per move per column
-/// @param total_threads Total number of threads we intend to run (which determines the size of the 'd_states')
-__host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int totalThreads);
-
-/// @brief Free memory allocated on the device
-/// @param d_states cuRAND states
-/// @param d_success_table Success table
-__host__ cudaError_t free_memory(curandState* d_states, int* d_success_table);
-
 /// @brief Kernel predicting next moves for each of the available columns
 /// @note Each kernel determines the column it needs to play first based on its ID modulus 7.
 /// @param d_states cuRAND states (one per thread)
@@ -55,6 +47,19 @@ __global__ void game_prediction_kernel(
     int* d_success_table,
     int our_disc_type);
 
+#endif
+
+/// @brief Allocate device memory needed by the kernels
+/// @param d_states cuRAND states to be allocated (one per thread)
+/// @param d_success_table An array of seven entries to hold number of successful wins per move per column
+/// @param total_threads Total number of threads we intend to run (which determines the size of the 'd_states')
+cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int totalThreads);
+
+/// @brief Free memory allocated on the device
+/// @param d_states cuRAND states
+/// @param d_success_table Success table
+cudaError_t free_memory(curandState* d_states, int* d_success_table);    
+
 /// @brief Plays the game based on current board state and disc type
 /// @param current_board_state Array of 42 integers, containing the board state. The first 28 bytes represent entries of row 0 (7 x 4bytes), and so on...
 /// @param our_disc_type Our disc type (either 1 or 2).
@@ -62,7 +67,7 @@ __global__ void game_prediction_kernel(
 /// @param out_best_move_column Output: best column as next move. If -1, no valid moves left (hence a tie).
 /// @param out_next_move_wins Output: If true, we have won the match.
 /// @return True if procedure runs error free, false indicates a crash/error.
-__host__ bool play_game(
+bool play_game(
     std::array<int, 42> current_board_state,
     int our_disc_type,
     std::array<int, 7>& out_success_per_column,
