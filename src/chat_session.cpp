@@ -2,23 +2,22 @@
 
 using boost::asio::ip::tcp;
 
-chat_session::~ChatSession()
-{
-    return this->close();    
-}
 
-comm_result_t chat_session::start()
+comm_result_t chat_session_t::start()
 {
     return this->do_read();
 }
 
-comm_result_t chat_session::send()
+comm_result_t chat_session_t::send_message(const std::vector<uint8_t>& message)
 {
     boost::asio::post(strand_,
-        [self = shared_from_this(), msg = message + "\n"]() mutable
+        [self = shared_from_this(), message]() mutable
         {
+            std::vector<uint8_t> wrapper(message);
+            wrapper.insert(wrapper.begin(), message.size());           
+
             bool was_empty = self->write_queue_.empty();
-            self->write_queue_.push(std::move(msg));
+            self->write_queue_.push(std::move(wrapper));
 
             // Only start writing if this is the first message in queue
             if (was_empty)
@@ -30,7 +29,12 @@ comm_result_t chat_session::send()
     return comm_result_t::Success;
 }
 
-comm_result_t chat_session::disconnect()
+comm_result_t chat_session_t::wait_for_message(std::vector<uint8_t>& out_message)
+{
+
+}
+
+comm_result_t chat_session_t::disconnect()
 {
     if (!this->is_connected_)
     {
@@ -43,9 +47,9 @@ comm_result_t chat_session::disconnect()
             if (self->is_connected_)
             {
                 self->is_connected_ = false;
-                boost::system::error_code ec;
-                self->socket_.shutdown(tcp::socket::shutdown_both, ec);
-                self->socket_.close(ec);
+                boost::system::error_code err_code;
+                self->socket_.shutdown(tcp::socket::shutdown_both, err_code);
+                self->socket_.close(err_code);
                 std::cout << "[session] Connection closed by server\n";
             }
         });
@@ -54,7 +58,7 @@ comm_result_t chat_session::disconnect()
 }
 
 
-comm_result_t chat_session::do_read()
+comm_result_t chat_session_t::do_read()
 {
     if (!this->is_connected_)
     {
@@ -65,13 +69,13 @@ comm_result_t chat_session::do_read()
     socket_.async_read_some(
         boost::asio::buffer(read_buffer_),
         boost::asio::bind_executor(strand_,
-            [this, self](boost::system::error_code ec, std::size_t length)
+            [this, self](boost::system::error_code err_code, std::size_t length)
             {
-                if (ec)
+                if (err_code)
                 {
-                    if (ec != boost::asio::error::operation_aborted)
+                    if (err_code != boost::asio::error::operation_aborted)
                     {
-                        std::cout << "[session] Read error: " << ec.message() << "\n";
+                        std::cout << "[session] Read error: " << err_code.message() << "\n";
                     }
                     is_connected_ = false;
                     return;
@@ -86,7 +90,7 @@ comm_result_t chat_session::do_read()
     return comm_result_t::Success;
 }
 
-comm_result_t chat_session::do_write()
+comm_result_t chat_session_t::do_write()
 {
     auto self = shared_from_this();
 
@@ -100,13 +104,13 @@ comm_result_t chat_session::do_write()
         socket_,
         boost::asio::buffer(write_queue_.front()),
         boost::asio::bind_executor(strand_,
-            [this, self](boost::system::error_code ec, std::size_t /*length*/)
+            [this, self](boost::system::error_code err_code, std::size_t /*length*/)
             {
-                if (ec)
+                if (err_code)
                 {
-                    if (ec != boost::asio::error::operation_aborted)
+                    if (err_code != boost::asio::error::operation_aborted)
                     {
-                        std::cout << "[session] Write error: " << ec.message() << "\n";
+                        std::cout << "[session] Write error: " << err_code.message() << "\n";
                     }
                     is_connected_ = false;
                     return;
@@ -124,7 +128,7 @@ comm_result_t chat_session::do_write()
     return comm_result_t::Success;
 }
 
-comm_result_t chat_session::close()
+comm_result_t chat_session_t::close()
 {
     if (!is_connected_)
     {

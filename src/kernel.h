@@ -21,7 +21,6 @@ __global__ void init_rand_kernel(curandState* d_states, int total_kernels, uint6
 /// @return -1 if no free space is available, free-space row index otherwise
 __device__ inline int get_free_row_index_for_column(int* d_matrix, int column);
 
-
 /// @brief Detects if a given column is full (and can no longer be used)
 /// @note Since the function code is rather small in size, it's best to inline it for performance reasons.
 /// @param d_matrix The 6x7 matrix containing the state
@@ -47,23 +46,24 @@ __global__ void game_prediction_kernel(
     int* d_success_table,
     int our_disc_type);
 
-#endif
-
 /// @brief Allocate device memory needed by the kernels
 /// @param d_states cuRAND states to be allocated (one per thread)
 /// @param d_success_table An array of seven entries to hold number of successful wins per move per column
 /// @param total_threads Total number of threads we intend to run (which determines the size of the 'd_states')
-cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int totalThreads);
+__host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int totalThreads);
 
 /// @brief Free memory allocated on the device
 /// @param d_states cuRAND states
 /// @param d_success_table Success table
-cudaError_t free_memory(curandState* d_states, int* d_success_table);    
+__host__ cudaError_t free_memory(curandState* d_states, int* d_success_table);      
+
+#endif
 
 /// @brief Plays the game based on current board state and disc type
 /// @param current_board_state Array of 42 integers, containing the board state. The first 28 bytes represent entries of row 0 (7 x 4bytes), and so on...
 /// @param our_disc_type Our disc type (either 1 or 2).
 /// @param out_success_per_column Output: chance of winning per column (7 entries, one per column). The higher the score, the better the move.
+/// @param out_best_move_row Output: The row where the next best move occupies. If -1, no valid moves left (hence a tie).
 /// @param out_best_move_column Output: best column as next move. If -1, no valid moves left (hence a tie).
 /// @param out_next_move_wins Output: If true, we have won the match.
 /// @return True if procedure runs error free, false indicates a crash/error.
@@ -71,6 +71,7 @@ bool play_game(
     std::array<int, 42> current_board_state,
     int our_disc_type,
     std::array<int, 7>& out_success_per_column,
+    int& out_best_move_row,
     int& out_best_move_column,
     bool& out_next_move_wins);
 

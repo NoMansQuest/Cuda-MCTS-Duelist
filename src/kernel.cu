@@ -238,10 +238,10 @@ __global__ void game_prediction_kernel(
     __syncthreads(); 
 }
 
-bool play_game(
+bool cuda_play_turn(
     std::array<int, CONNECT4_MATRIX_SIZE> current_board_state,
-    int our_disc_type,
-    std::array<int, COL_COUNT>& out_success_per_column,
+    int our_disc_type,    
+    int& out_best_move_row,
     int& out_best_move_column,
     bool& out_next_move_wins)
 {
@@ -289,6 +289,7 @@ bool play_game(
     cudaDeviceSynchronize();
 
     // We now need to copy the data from d_success_table to out_success_per_column
+    std::array<int, COL_COUNT> out_success_per_column{};
     cudaMemcpy(out_success_per_column.data(), d_success_table, sizeof(int) * COL_COUNT, cudaMemcpyDeviceToHost);
 
     // Gather success data

@@ -24,6 +24,11 @@ set(CMAKE_CUDA_ARCHITECTURES 52 61 75 86 89 100 100-virtual)
 set(SOURCES
     src/main.cpp
     src/kernel.cu
+    src/server_mode.cpp
+    src/client_mode.cpp
+    src/game_helpers.cpp
+    src/game_engine.cpp
+    src/chat_session.cpp
 )
 
 add_executable(Cuda_MCTS_Duelist ${SOURCES})

@@ -1,7 +1,7 @@
 #ifndef _SESSION_MESSAGE_H__
 #define _SESSION_MESSAGE_H__
 
-#include <array>
+#include <vector>
 #include <stdexcept>
 
 /// @brief Enum reflecting the state of the game.
@@ -17,29 +17,28 @@ enum class game_state_t : int
     TieDetected
 };
 
-
 /// @brief Message exchanged between participants.
 /// @note Is essentially contains the row and column played by the opponent.
 struct session_message_t
 {
     /// @brief Row allocated by the emitter.
-    int allocated_row;
+    int played_row;
 
     /// @brief Column allocated by the emitter.
-    int allocated_column;
+    int played_column;
 
     /// @brief State of the game.
     game_state_t game_state;
 
     /// @brief Serializes the structure into a 3-byte message
     /// @return Serialized data in an array of 3
-    std::array<int, 3> Serialize() const noexcept
+    std::vector<uint8_t> Serialize() const noexcept
     {
-        return { allocated_row, allocated_column, static_cast<int>(game_state) };
+        return { (uint8_t)played_row, (uint8_t)played_column, static_cast<uint8_t>(game_state) };
     }
 
     /// @brief conversion operator: allows implicit/explicit conversion to std::array<int,3>
-    operator std::array<int, 3>() const noexcept
+    operator std::vector<uint8_t>() const noexcept
     {
         return this->Serialize();
     }
@@ -48,7 +47,7 @@ struct session_message_t
     /// @param input_data Data to deserialize
     /// @exception std::out_of_range exception can be raised in row or column or game_state is not valid.
     /// @return A deserialized session_message_t object.
-    static session_message_t Deserialize(std::array<int, 3> input_data)
+    static session_message_t Deserialize(std::vector<uint8_t> input_data)
     {
         const int row = input_data[0];
         const int col = input_data[1];
@@ -67,8 +66,8 @@ struct session_message_t
         }
 
         session_message_t msg;
-        msg.allocated_row = row;
-        msg.allocated_column = col;
+        msg.played_row = row;
+        msg.played_column = col;
         msg.game_state = static_cast<game_state_t>(state);
         return msg;
     }
