@@ -14,13 +14,16 @@ using namespace std::literals;
 /// @brief Entity represents an active chat session
 class chat_session_t : public std::enable_shared_from_this<chat_session_t>
 {
-
 private:
     tcp::socket socket_;
     boost::asio::strand<boost::asio::io_context::executor_type> strand_;
-    std::array<char, 1024> read_buffer_{};
+    std::array<uint8_t, 512> read_buffer_{};
+    std::vector<uint8_t> remainder_;
+    std::queue<std::vector<uint8_t>> received_messages_;
+    std::mutex received_mutex_;
+    std::condition_variable received_cv_;
     std::queue<std::vector<uint8_t>> write_queue_;
-    std::mutex queue_mutex_; 
+    std::mutex queue_mutex_;  // kept as is, though strand handles write serialization...
     std::atomic<bool> is_connected_;
     void* user_data_ = nullptr;
 

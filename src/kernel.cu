@@ -20,7 +20,7 @@ template <typename T> constexpr T max(T a, T b) { return (a > b) ? a : b; }
 // it communicated via 'constant' memory.
 __constant__ int connect4_matrix_data[CONNECT4_MATRIX_SIZE];
 
-cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int totalThreads)
+__host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int totalThreads)
 {
     *d_states = nullptr;
     *d_success_table = nullptr;
@@ -40,7 +40,7 @@ cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int t
     return status;    
 }
 
-cudaError_t free_memory(curandState* d_states, int* d_success_table)
+__host__ cudaError_t free_memory(curandState* d_states, int* d_success_table)
 {
     auto status = cudaFree(d_states);
     if (status != cudaSuccess)

@@ -120,6 +120,7 @@ int main(int argc, char *args[])
     }
 
     boost::asio::io_context io_context_;
+    io_context_.run();
 
     if (server_mode)
         duelist_server_mode(io_context_, port);
