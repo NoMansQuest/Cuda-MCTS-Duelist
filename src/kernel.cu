@@ -4,6 +4,7 @@
 #include <ctime>
 #include <chrono>
 #include <algorithm>
+#include <curand_kernel.h>
 #include "kernel.h"
 
 #define ROW_COUNT 6
@@ -31,7 +32,7 @@ __host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_tab
         return status;
     }
 
-    status = cudaMalloc(d_success_table, sizeof(int) * COL_COUNT);
+    status = cudaMalloc(d_success_table, sizeof(int) * totalThreads);
     if (status != cudaSuccess)
     {
         cudaFree(*d_states);
@@ -146,6 +147,22 @@ __device__ inline int get_free_row_index_for_column(int* d_matrix, int column) /
     return -1; // No free slot here
 }
 
+__host__ inline int get_free_row_index_for_column_host(int* h_matrix, int column)
+{
+    // For a 'no-column' scenario we return -1 as well.
+    if (column == -1)
+    {
+        return -1;
+    }
+
+    for (int row = ROW_COUNT - 1; row >= 0; row--)
+    {
+        if (h_matrix[get_flat_memory_index(row, column)] == 0) 
+            return row;        
+    }
+    return -1; // No free slot here
+}
+
 __device__ inline bool is_column_full(int* d_matrix, int column)
 {
     // Note: Row 0 is the top-most row, and Row 6 is the bottom most.
@@ -182,8 +199,9 @@ __global__ void game_prediction_kernel(
 
     auto our_turn = true;
     auto opponent_disc_type = (our_disc_type == 1) ? 2 : 1;
-
     auto total_available_slots = 0;
+    auto total_moves_to_success = 0;
+
     for (auto col_hover = 0; col_hover < COL_COUNT; col_hover++)
     {
         total_available_slots += (get_free_row_index_for_column(shared_mem_matrix, col_hover) + 1);
@@ -205,12 +223,13 @@ __global__ void game_prediction_kernel(
             }
 
             shared_mem_matrix[get_flat_memory_index(free_slot_row_index, chosen_column)] = our_turn ? our_disc_type : opponent_disc_type;
+            total_moves_to_success++;
             
             // Do we have a win (either ours or opponents)?
             if (check_if_won(shared_mem_matrix, free_slot_row_index, chosen_column))
             {
                 // Either we or the opponent has won, no need to continue the loop
-                game_won = our_turn ? true : false; 
+                game_won = our_turn ? true : false;                 
                 break;
             }
 
@@ -232,7 +251,7 @@ __global__ void game_prediction_kernel(
     __syncthreads();    
 
     // Restore randomizer state for the next kernel call. Also update the 'd_success_table'
-    atomicAdd(&d_success_table[first_move_column], game_won ? 1 : 0);
+    d_success_table[threadId] = game_won ? total_moves_to_success : -1;
 
     // Final synchronization
     __syncthreads(); 
@@ -243,11 +262,12 @@ bool cuda_play_turn(
     int our_disc_type,    
     int& out_best_move_row,
     int& out_best_move_column,
-    bool& out_next_move_wins)
+    bool& out_next_move_wins,
+    bool& out_tie_detected)
 {
     // Note: Since we have 7 columns to play as our first move,
     // we'll run 1000 threads per move, totalling to 7,000 threads
-    int totalThreadsToLaunch = 7000;
+    int totalThreadsToLaunchTarget = 7000;
 
     // We're using shared memory to accelerate our design. Assuming the available
     // shared memory per block is 48KB, and each thread needing 168 bytes of shared-memory (6 x 7 = 42 x sizeof(int) = 168)
@@ -255,13 +275,16 @@ bool cuda_play_turn(
     int threadsPerBlock = 256;
     
     // Based on our threads per block, we calculate the total number of blocks.
-    int blocksPerGrid = (totalThreadsToLaunch + threadsPerBlock - 1) / threadsPerBlock;         
+    int blocksPerGrid = (totalThreadsToLaunchTarget + threadsPerBlock - 1) / threadsPerBlock;         
+
+    int totalThreadsToLaunch = blocksPerGrid * threadsPerBlock;
+    int threadsPerColumn = totalThreadsToLaunch % COL_COUNT;
 
     curandState* d_states;
     int* d_success_table;
     
     // Allocate required memory
-    auto status = allocate_memory(&d_states, &d_success_table, totalThreadsToLaunch);
+    auto status = allocate_memory(&d_states, &d_success_table, blocksPerGrid * threadsPerBlock);
     if (status != cudaSuccess)
     {
         printf("Failed to allocate memory; return code: %d\n", status);
@@ -278,7 +301,7 @@ bool cuda_play_turn(
 
     // First we need to run our cuRAND initialization kernel
     auto duration = std::chrono::high_resolution_clock::now().time_since_epoch();
-    uint64_t nano_seed = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();    
+    auto nano_seed = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
 
     init_rand_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_states, totalThreadsToLaunch, nano_seed);    
     cudaDeviceSynchronize();
@@ -289,23 +312,33 @@ bool cuda_play_turn(
     cudaDeviceSynchronize();
 
     // We now need to copy the data from d_success_table to out_success_per_column
-    std::array<int, COL_COUNT> out_success_per_column{};
-    cudaMemcpy(out_success_per_column.data(), d_success_table, sizeof(int) * COL_COUNT, cudaMemcpyDeviceToHost);
+    int* thread_success_table = new int(sizeof(int) * totalThreadsToLaunch);
+    cudaMemcpy(thread_success_table, d_success_table, sizeof(int) * totalThreadsToLaunch, cudaMemcpyDeviceToHost);
 
     // Gather success data
-    int highest_score = 0;
-    int highest_score_column_index = -1;
-    for (auto i = 0; i < out_success_per_column.size(); i++)
+    int highest_score = -1;
+    int highest_score_column_index = -1;    
+
+    for (auto i = 0; i < totalThreadsToLaunch; i++)
     {
-        if (out_success_per_column[i] > highest_score)
+        // Is this the winning move?
+        if (highest_score == -1)
         {
-            highest_score_column_index = i;
-            highest_score = out_success_per_column[i];
+            highest_score = thread_success_table[i];
+            highest_score_column_index = i % COL_COUNT;
+        }
+        else if (thread_success_table[i] < highest_score)
+        {
+            highest_score = thread_success_table[i];
+            highest_score_column_index = i % COL_COUNT;
         }
     }
-
+    delete[] thread_success_table;
+    
     out_best_move_column = highest_score_column_index;
-    out_next_move_wins = highest_score > 0; // The score indicates the number of potential wins for the next move, with '0' indicating a no-win prediction.
+    out_best_move_row = get_free_row_index_for_column_host(current_board_state.data(), out_best_move_column);
+    out_next_move_wins = highest_score == 1; // We have won!
+    out_tie_detected = highest_score == 0; // No thread was able to win (hence all scores being 0), it means we have a tie on our hands!
     
     // Free memory and return
     status = free_memory(d_states, d_success_table);

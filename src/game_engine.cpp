@@ -7,11 +7,12 @@
 void run_game(
     chat_session_t& session,
     std::array<int, game_board_size> game_board_linear,
-    bool make_first_move)
+    bool is_server)
 {
     comm_result_t incoming_message_result;
     std::vector<uint8_t> incoming_message_raw;
-    auto game_ended = false;  
+    auto game_ended = false; 
+    auto disc_type = is_server ? client_disc_type : server_disc_type;
 
     for(incoming_message_result = session.wait_for_message(incoming_message_raw);
         incoming_message_result == comm_result_t::Success && !game_ended;
@@ -39,7 +40,7 @@ void run_game(
         int best_move_row = 0;
         auto next_move_wins = false;
 
-        auto play_game_result = cuda_play_turn(game_board_linear, client_disc_type, best_move_row, best_move_column, next_move_wins);
+        auto play_game_result = cuda_play_turn(game_board_linear, disc_type, best_move_row, best_move_column, next_move_wins);
 
         if (!play_game_result) {
             std::cout << "CUDA operation failed, aborting!" << std::endl;
@@ -51,12 +52,12 @@ void run_game(
         switch (game_state)
         {
             case game_state_t::Playing:
-                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = client_disc_type;
+                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = disc_type;
                 std::cout << "Played row " << best_move_row << ", column " << best_move_column << std::endl;
                 break;
                 
             case game_state_t::PlayerHasWon:
-                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = client_disc_type;
+                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = disc_type;
                 game_ended = true;
                 std::cout << "Played row " << best_move_row << ", column " << best_move_column << " - We have won!" << std::endl;
                 break;

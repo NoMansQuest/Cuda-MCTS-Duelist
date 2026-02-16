@@ -57,6 +57,13 @@ __host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_tab
 /// @param d_success_table Success table
 __host__ cudaError_t free_memory(curandState* d_states, int* d_success_table);      
 
+/// @brief Returns the free row index for a given column.
+/// @note Since the function code is rather small in size, it's best to inline it for performance reasons.
+/// @param h_matrix The 6x7 matrix containing the state
+/// @param column Index of the column to check for
+/// @return -1 if no free space is available, free-space row index otherwise
+__host__ inline int get_free_row_index_for_column_host(int* h_matrix, int column);
+
 #endif
 
 /// @brief Plays the game based on current board state and disc type
@@ -66,13 +73,14 @@ __host__ cudaError_t free_memory(curandState* d_states, int* d_success_table);
 /// @param out_best_move_row Output: The row where the next best move occupies. If -1, no valid moves left (hence a tie).
 /// @param out_best_move_column Output: best column as next move. If -1, no valid moves left (hence a tie).
 /// @param out_next_move_wins Output: If true, we have won the match.
+/// @param out_tie_detected Output: If true, we have a tie (and no chance of winning)
 /// @return True if procedure runs error free, false indicates a crash/error.
-bool play_game(
+bool cuda_play_turn(
     std::array<int, 42> current_board_state,
     int our_disc_type,
-    std::array<int, 7>& out_success_per_column,
     int& out_best_move_row,
     int& out_best_move_column,
-    bool& out_next_move_wins);
+    bool& out_next_move_wins,
+    bool& out_tie_detected);
 
 #endif
