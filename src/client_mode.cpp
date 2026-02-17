@@ -9,7 +9,8 @@
 /// @param port Remote server port to connect to.
 void duelist_client_mode(boost::asio::io_context& io_context, std::string&& ip_address, uint16_t port)
 {    
-    // Introduction    
+    // Introduction
+    std::cout << "CUDA MCTS Duelist starting..." << std::endl;
     std::cout << "Starting as client, connecting to " << ip_address << ":" << port << "..." << std::endl;    
     
     try 

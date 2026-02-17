@@ -26,14 +26,18 @@ bool parse_arguments(
     bool& asking_for_help,
     bool& server_mode)
 {
-    bool server_switch;
-    bool client_switch;    
-    std::string port_number_in_string;
+    bool server_switch = false;
+    bool client_switch = false;
+    asking_for_help = false;
+    remote_ip = "";
+    port = 0;
+
+    std::string port_number_in_string = "";
 
     for (auto arg_index = 0; arg_index < argc; arg_index++) {
         std::string arg(args[arg_index]);
 
-        if ((arg.compare("--help") == 0) || (arg.compare("-H"))) {
+        if ((arg.compare("--help") == 0) || (arg.compare("-H") == 0)) {
             asking_for_help = true;
             break;
         }        
@@ -52,7 +56,7 @@ bool parse_arguments(
                 std::cout << "Error, a valid port number must be provided after the '--port' argument." << std::endl;
                 return 0;
             }            
-            port_number_in_string = std::string(args[++arg_index]);
+            port_number_in_string = std::string(args[++arg_index]);            
             continue;
         }
 
@@ -80,19 +84,24 @@ bool parse_arguments(
         return false;
     }
 
-
     if (client_switch && remote_ip.empty()) {
         std::cout << "Error, in client mode(i.e. '--client' set), the remote IP address must be passed using the '--ip' switch." << std::endl;
+        return false;
+    }
+
+    if (port_number_in_string == "") {
+        std::cout << "Error, port must be defined." << std::endl;
         return false;
     }
 
     try 
     {
         auto cast_value = std::stoi(port_number_in_string); // may throw
-        if (cast_value > 65535 || cast_value < 0) {
-            throw std::out_of_range("Error, port number out of range");
+        if (cast_value > 65535 || cast_value < 1) {
+            std::cout << "Error, port number out of range (choose between 1 and 65,535)." << std::endl;
+            return false;
         }
-        port = cast_value;
+        port = (uint16_t)cast_value;
     } catch (const std::invalid_argument&) {
         std::cout << "Error, '" << port_number_in_string << "' is not a valid port number" << std::endl;
         return false;
@@ -108,12 +117,10 @@ bool parse_arguments(
 int main(int argc, char *args[])
 {
     auto server_mode = false;
-    bool asking_for_help = (argc == 0);
+    bool asking_for_help = false;
     std::string remote_ip;
     uint16_t port = 0;
-
-    std::cout << "CUDA MCTS Duelist starting..." << std::endl;
-
+    
     if (!parse_arguments(argc, args, remote_ip, port, asking_for_help, server_mode))
     {        
         return 0;

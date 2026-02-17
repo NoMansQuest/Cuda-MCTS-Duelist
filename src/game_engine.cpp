@@ -39,8 +39,9 @@ void run_game(
         int best_move_column = 0;
         int best_move_row = 0;
         auto next_move_wins = false;
+        auto tie_detected = false;
 
-        auto play_game_result = cuda_play_turn(game_board_linear, disc_type, best_move_row, best_move_column, next_move_wins);
+        auto play_game_result = cuda_play_turn(game_board_linear, disc_type, best_move_row, best_move_column, next_move_wins, tie_detected);
 
         if (!play_game_result) {
             std::cout << "CUDA operation failed, aborting!" << std::endl;
@@ -48,7 +49,7 @@ void run_game(
         }                        
 
         // We need to send a message to the remote player
-        auto game_state = next_move_wins ? game_state_t::PlayerHasWon : (best_move_column == -1 ? game_state_t::TieDetected : game_state_t::Playing);
+        auto game_state = next_move_wins ? game_state_t::PlayerHasWon : (tie_detected ? game_state_t::TieDetected : game_state_t::Playing);
         switch (game_state)
         {
             case game_state_t::Playing:

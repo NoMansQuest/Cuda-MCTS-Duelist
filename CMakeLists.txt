@@ -5,6 +5,10 @@ project(Cuda_MCTS_Duelist LANGUAGES CXX CUDA)
 set(BOOST_ENABLE_CMAKE ON CACHE BOOL "" FORCE)
 set(BOOST_INCLUDE_LIBRARIES asio system filesystem program_options) # Only build/include what you need
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 include(FetchContent)
 FetchContent_Declare(
   Boost
@@ -25,6 +29,7 @@ set(SOURCES
     src/main.cpp
     src/kernel.cu
     src/server_mode.cpp
+    src/comm_result.cpp
     src/client_mode.cpp
     src/game_helpers.cpp
     src/game_engine.cpp
@@ -42,7 +47,7 @@ target_include_directories(Cuda_MCTS_Duelist PRIVATE
 
 # Compiler Settings
 set_target_properties(Cuda_MCTS_Duelist PROPERTIES 
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CUDA_STANDARD 17
     CUDA_SEPARABLE_COMPILATION ON
     CMAKE_CUDA_STANDARD_REQUIRED ON
@@ -64,6 +69,9 @@ target_link_libraries(Cuda_MCTS_Duelist PRIVATE
 
 # Optimization (Optional but recommended for MCTS, with O3 offering the highest performance)
 if(MSVC)
+
+    add_definitions(-D_WIN32_WINNT=0x0A00)
+    
     target_compile_options(Cuda_MCTS_Duelist PRIVATE
         # 1. Flags for .cpp files (main.cpp)
         $<$<COMPILE_LANGUAGE:CXX>:/W4 /EHsc>

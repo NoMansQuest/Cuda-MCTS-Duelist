@@ -1,12 +1,12 @@
 #ifndef _CHAT_SESSION_H__
 #define _CHAT_SESSION_H__
 
-#include <asio.hpp>
 #include <iostream>
 #include <string>
 #include <thread>
 #include <queue>
 #include "comm_result.h"
+#include "global.h"
 
 using boost::asio::ip::tcp;
 using namespace std::literals;
@@ -16,7 +16,7 @@ class chat_session_t : public std::enable_shared_from_this<chat_session_t>
 {
 private:
     tcp::socket socket_;
-    boost::asio::strand<boost::asio::io_context::executor_type> strand_;
+    boost::asio::strand<boost::asio::any_io_executor> strand_;
     std::array<uint8_t, 512> read_buffer_{};
     std::vector<uint8_t> remainder_;
     std::queue<std::vector<uint8_t>> received_messages_;
@@ -42,7 +42,7 @@ public:
 
     /// @brief Default destructor
     /// @note We do need to close the connection just to be sure.
-    chat_session_t::~chat_session_t()
+    ~chat_session_t()
     {
         this->close();
     }

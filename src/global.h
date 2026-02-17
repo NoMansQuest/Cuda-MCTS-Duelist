@@ -1,13 +1,13 @@
 #ifndef _GLOBAL_H__
 #define _GLOBAL_H__
 
-#include <asio.hpp>
-#include <asio/co_spawn.hpp>
-#include <asio/detached.hpp>
-#include <asio/awaitable.hpp>
-#include <asio/use_awaitable.hpp>
-#include <asio/io_context.hpp>
-#include <asio/ip/tcp.hpp>
+#include <boost/asio.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
 #include <coroutine>
 #include <iostream>
 #include <string>

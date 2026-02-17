@@ -276,9 +276,7 @@ bool cuda_play_turn(
     
     // Based on our threads per block, we calculate the total number of blocks.
     int blocksPerGrid = (totalThreadsToLaunchTarget + threadsPerBlock - 1) / threadsPerBlock;         
-
     int totalThreadsToLaunch = blocksPerGrid * threadsPerBlock;
-    int threadsPerColumn = totalThreadsToLaunch % COL_COUNT;
 
     curandState* d_states;
     int* d_success_table;
