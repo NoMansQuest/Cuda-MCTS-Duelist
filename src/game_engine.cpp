@@ -6,7 +6,7 @@
 
 void run_game(
     std::shared_ptr<chat_session_t> session,
-    std::array<int, game_board_size> game_board_linear,
+    std::array<int, game_board_size>& game_board_linear,
     bool is_server)
 {    
     std::vector<uint8_t> incoming_message_raw;
@@ -19,20 +19,24 @@ void run_game(
     if (is_server)
     {
         int chosen_column = rand() % game_board_columns;
-        std::cout << "[server] run_game performed first move on column " << chosen_column << std::endl;
-        game_board_linear[TO_LINEAR(0, chosen_column)] = our_disc_type;
-        session_message_t msg { 0, chosen_column, game_state_t::Playing };
+        int chosen_row = game_board_rows - 1; // The bottom-most row
+        DEBUG(std::cout << "[run_game] -- server -- run_game performed first move on column " << chosen_column << std::endl)
+        game_board_linear[TO_LINEAR(chosen_row, chosen_column)] = our_disc_type;
+        session_message_t msg { chosen_row, chosen_column, game_state_t::Playing };
         session->send_message(msg);
     }
 
     // Game loop
     while(incoming_message_result == comm_result_t::Success && !game_ended)
     {
-        auto incoming_message_result = session->wait_for_message(incoming_message_raw);
+        incoming_message_result = session->wait_for_message(incoming_message_raw);
 
         // Deserialize the incoming message
         auto incoming_message = session_message_t::Deserialize(incoming_message_raw);
         std::cout << "Opponent played row " << incoming_message.played_row << ", column " << incoming_message.played_column << std::endl;
+
+        // We update our game board to include opponent's move
+        game_board_linear[TO_LINEAR(incoming_message.played_row, incoming_message.played_column)] = opponent_disc_type;
 
         if (incoming_message.game_state == game_state_t::PlayerHasWon) {
             std::cout << "Opponent has won!" << std::endl;
@@ -45,14 +49,15 @@ void run_game(
         }
 
         // We update our game board to include opponent's move
-        game_board_linear[TO_LINEAR(incoming_message.played_row, incoming_message.played_column)] = server_disc_type;
+        DEBUG(std::cout << "[run_game] Updated game-board with opponents move. " << std::endl)
 
         // Note: The client discs are marked as 2, server discs are marked as 1.            
         int best_move_column = 0;
         int best_move_row = 0;
         auto next_move_wins = false;
         auto tie_detected = false;
-
+        
+        DEBUG(std::cout << "[run_game] Performing 'cuda_play_turn'... " << std::endl)
         auto play_game_result = cuda_play_turn(
             game_board_linear,
             our_disc_type,
@@ -61,29 +66,31 @@ void run_game(
             next_move_wins,
             tie_detected);
 
+        DEBUG(std::cout << "[run_game] 'cuda_play_turn' complete with result: " << play_game_result << std::endl)
+
         if (!play_game_result) {
             std::cout << "CUDA operation failed, aborting!" << std::endl;
             return;
-        }                        
+        }
 
         // We need to send a message to the remote player
         auto game_state = next_move_wins ? game_state_t::PlayerHasWon : (tie_detected ? game_state_t::TieDetected : game_state_t::Playing);
         switch (game_state)
         {
             case game_state_t::Playing:
-                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = opponent_disc_type;
-                std::cout << "Played row " << best_move_row << ", column " << best_move_column << std::endl;
+                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = our_disc_type;
+                std::cout << " Played row " << best_move_row << ", column " << best_move_column << std::endl;
                 break;
                 
             case game_state_t::PlayerHasWon:
-                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = opponent_disc_type;
+                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = our_disc_type;
                 game_ended = true;
-                std::cout << "Played row " << best_move_row << ", column " << best_move_column << " - We have won!" << std::endl;
+                std::cout << " Played row " << best_move_row << ", column " << best_move_column << " - We have won!" << std::endl;
                 break;
                 
             default: // Tie
                 game_ended = true;
-                std::cout << "Tie detected! " << best_move_column << std::endl;
+                std::cout << " Tie detected! " << best_move_column << std::endl;
                 break;
         }
         

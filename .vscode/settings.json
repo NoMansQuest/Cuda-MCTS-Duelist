@@ -2,9 +2,15 @@
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
     "cmake.generator": "Visual Studio 18 2026",
     "cSpell.words": [
+        "chrono",
         "constexpr",
+        "cout",
+        "curand",
+        "endl",
         "expt",
+        "Malloc",
         "MSVC",
+        "nullptr",
         "NVCC",
         "Wextra",
         "Xcompiler"

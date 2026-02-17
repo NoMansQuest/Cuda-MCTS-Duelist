@@ -40,7 +40,7 @@ public:
           is_connected_(true),
           user_data_(user_data)
     {
-        std::cout << "[chat_session_t::ctor] chat_session_t constructed at " << this << "\n";
+        DEBUG(std::cout << "[chat_session_t::ctor] chat_session_t constructed at " << this << "\n")
     }
 
     /// @brief Default destructor

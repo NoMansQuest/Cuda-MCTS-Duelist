@@ -32,6 +32,10 @@ constexpr int server_disc_type = 1;
 
 #define TO_LINEAR(row, col) ((row * game_board_columns) + col)
 
+/// @brief DEBUG switch
+// #define DEBUG(x) x;
+#define DEBUG(x)
+
 /// @brief Help text
 const std::string help_text = R"help(
     CUDA Monte-Carlo Tree Search (MCTS) Duelist

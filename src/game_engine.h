@@ -10,7 +10,7 @@
 /// @param is_server Make the first move? (this applies to the server)
 void run_game(
     std::shared_ptr<chat_session_t> session,
-    std::array<int, game_board_size> game_board_linear,
+    std::array<int, game_board_size>& game_board_linear,
     bool is_server);
 
 #endif

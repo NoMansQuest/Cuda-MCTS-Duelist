@@ -3,6 +3,9 @@
 
 #include <array>
 
+// #define DEBUG(x) x;
+#define DEBUG(x)
+
 #ifdef __CUDACC__
 
 #include <cuda_runtime.h>
@@ -19,14 +22,7 @@ __global__ void init_rand_kernel(curandState* d_states, int total_kernels, uint6
 /// @param d_matrix The 6x7 matrix containing the state
 /// @param column Index of the column to check for
 /// @return -1 if no free space is available, free-space row index otherwise
-__device__ inline int get_free_row_index_for_column(int* d_matrix, int column);
-
-/// @brief Detects if a given column is full (and can no longer be used)
-/// @note Since the function code is rather small in size, it's best to inline it for performance reasons.
-/// @param d_matrix The 6x7 matrix containing the state
-/// @param column Index of the column to check for
-/// @return True if column is full, false otherwise.
-__device__ inline bool is_column_full(int* d_matrix, int column);
+__host__ __device__ inline int get_free_row_index_for_column(int* d_matrix, int column);
 
 /// @brief Checks if the just-inserted disc results in a win
 /// @note We can determine our own disc type by checking the matrix at new_disc location.
