@@ -38,7 +38,9 @@ public:
           strand_(boost::asio::make_strand(socket_.get_executor())),
           is_connected_(true),
           user_data_(user_data)
-    {}
+    {
+        std::cout << "[chat_session_t::ctor] chat_session_t constructed at " << this << "\n";
+    }
 
     /// @brief Default destructor
     /// @note We do need to close the connection just to be sure.

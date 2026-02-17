@@ -4,6 +4,7 @@ using boost::asio::ip::tcp;
 
 comm_result_t chat_session_t::start()
 {
+    std::cout << "[chat_session_t::start] entering start() for session " << this << "\n";
     return this->do_read();
 }
 
@@ -40,7 +41,7 @@ comm_result_t chat_session_t::wait_for_message(std::vector<uint8_t>& out_message
     }
 
     std::unique_lock<std::mutex> lk(received_mutex_);
-    if (received_cv_.wait_for(lk, 2s, [this] { return !received_messages_.empty(); }))
+    if (received_cv_.wait_for(lk, 2s, [self = shared_from_this()] { return !self->received_messages_.empty(); }))
     {
         out_message = std::move(received_messages_.front());
         received_messages_.pop();
@@ -77,59 +78,75 @@ comm_result_t chat_session_t::disconnect()
 
 comm_result_t chat_session_t::do_read()
 {
+    std::cout << "[chat_session_t::do_read] entering do_read() for session " << this << "\n";
+
     if (!this->is_connected_)
     {
         return comm_result_t::NotConnected;
     }
 
-    auto self = shared_from_this();
-    socket_.async_read_some(
-        boost::asio::buffer(read_buffer_),
-        boost::asio::bind_executor(strand_,
-            [this, self](boost::system::error_code err_code, std::size_t length)
-            {
-                if (err_code)
+    // Post the starter — capture raw this (safe, because post is fire-and-forget)
+    boost::asio::post(strand_, [this]() {
+        std::cout << "[posted read starter] inside posted lambda for session " << this << "\n";
+
+        // Schedule the read — use raw this in the bind_executor lambda too (safe)
+        socket_.async_read_some(
+            boost::asio::buffer(read_buffer_),
+            boost::asio::bind_executor(strand_,
+                [this](boost::system::error_code err_code, std::size_t length) mutable
                 {
-                    if (err_code != boost::asio::error::operation_aborted)
+                    // NOW it's safe to get shared_ptr — handler is running asynchronously
+                    auto self = this;
+
+                    std::cout << "[async_read_some handler] entered for session " << self << "\n";
+
+                    if (err_code)
                     {
-                        std::cout << "[session] Read error: " << err_code.message() << "\n";
+                        if (err_code != boost::asio::error::operation_aborted)
+                        {
+                            std::cout << "[session] Read error: " << err_code.message() << "\n";
+                        }
+                        self->is_connected_ = false;
+                        return;
                     }
-                    is_connected_ = false;
-                    return;
-                }
 
-                // Append new data to remainder
-                remainder_.insert(remainder_.end(), read_buffer_.begin(), read_buffer_.begin() + length);
+                    // From here on: use self-> everywhere
+                    self->remainder_.insert(self->remainder_.end(),
+                                            self->read_buffer_.begin(),
+                                            self->read_buffer_.begin() + length);
 
-                // Parse complete messages
-                while (!remainder_.empty())
-                {
-                    if (remainder_.size() < 1) break;  // Need at least size byte
-                    uint8_t msg_size = remainder_[0];
-                    if (remainder_.size() < 1 + msg_size) break;  // Not enough for full message
-
-                    std::vector<uint8_t> msg(remainder_.begin() + 1, remainder_.begin() + 1 + msg_size);
+                    while (!self->remainder_.empty())
                     {
-                        std::lock_guard<std::mutex> lk(received_mutex_);
-                        received_messages_.push(std::move(msg));
+                        if (self->remainder_.size() < 1) break;
+                        uint8_t msg_size = self->remainder_[0];
+                        if (self->remainder_.size() < 1 + msg_size) break;
+
+                        std::vector<uint8_t> msg(self->remainder_.begin() + 1,
+                                                 self->remainder_.begin() + 1 + msg_size);
+
+                        {
+                            std::lock_guard<std::mutex> lk(self->received_mutex_);
+                            self->received_messages_.push(std::move(msg));
+                        }
+                        self->received_cv_.notify_one();
+
+                        self->remainder_.erase(self->remainder_.begin(),
+                                               self->remainder_.begin() + 1 + msg_size);
                     }
-                    received_cv_.notify_one();
 
-                    // Erase processed data
-                    remainder_.erase(remainder_.begin(), remainder_.begin() + 1 + msg_size);
-                }
+                    // Chain next read (still safe)
+                    self->do_read();
+                }));
+        
+        std::cout << "[posted read starter] async_read_some has been scheduled\n";
+    });
 
-                // Continue reading
-                do_read();
-            }));
-
+    std::cout << "[do_read] first async read initiation posted to strand\n";
     return comm_result_t::Success;
 }
 
 comm_result_t chat_session_t::do_write()
 {
-    auto self = shared_from_this();
-
     if (!is_connected_)
         return comm_result_t::NotConnected;
 
@@ -140,23 +157,24 @@ comm_result_t chat_session_t::do_write()
         socket_,
         boost::asio::buffer(write_queue_.front()),
         boost::asio::bind_executor(strand_,
-            [this, self](boost::system::error_code err_code, std::size_t /*length*/)
+            [self = shared_from_this()](boost::system::error_code err_code, std::size_t /*length*/)
             {
+                std::cout << "[chat_session_t::do_write->async_write] entering async_write for session " << self << "\n";
                 if (err_code)
                 {
                     if (err_code != boost::asio::error::operation_aborted)
                     {
                         std::cout << "[session] Write error: " << err_code.message() << "\n";
                     }
-                    is_connected_ = false;
+                    self->is_connected_ = false;
                     return;
                 }
 
-                write_queue_.pop();
+                self->write_queue_.pop();
 
-                if (!write_queue_.empty())
+                if (!self->write_queue_.empty())
                 {
-                    do_write();
+                    self->do_write();
                 }
             }));
 
