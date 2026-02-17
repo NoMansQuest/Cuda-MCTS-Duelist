@@ -10,6 +10,7 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <coroutine>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <stdexcept>
 #include <array>

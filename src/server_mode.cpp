@@ -6,6 +6,7 @@
 void duelist_server_mode( boost::asio::io_context& io_context, uint16_t port)
 {
     // Introduction
+    std::cout << "CUDA MCTS Duelist starting..." << std::endl;
     std::cout << "Starting as server, awaiting connection on port " << port << "..." << std::endl;
 
     try
@@ -32,8 +33,9 @@ void duelist_server_mode( boost::asio::io_context& io_context, uint16_t port)
                 << ")" << std::endl; 
         }        
 
-        chat_session_t session(std::move(socket), nullptr);
-        session.start();
+        auto session = std::make_shared<chat_session_t>(std::move(socket), nullptr);
+        session->updated_self(session);
+        session->start();
         
         // As client, we need to wait for the first move by the remote. Server makes the first move...
         std::array<int, game_board_size> game_board_linear{};

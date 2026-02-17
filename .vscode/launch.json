@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "(Win) Server Launch ",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/Debug/Cuda_MCTS_Duelist.exe",
+            "args": ["--server", "--port", "60000"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "integratedTerminal",
+            "preLaunchTask": "CMake: build"   // optional but very useful
+        },
+        {
+            "name": "(Win) Client Launch ",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/Debug/Cuda_MCTS_Duelist.exe",
+            "args": ["--client", "--ip", "127.0.0.1", "--port", "60000"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "integratedTerminal",
+            "preLaunchTask": "CMake: build"   // optional but very useful
+        }        
+    ]
+}

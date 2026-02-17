@@ -9,7 +9,7 @@
 /// @param game_board_linear Game board matrix in an array (2D-matrix flattened)
 /// @param is_server Make the first move? (this applies to the server)
 void run_game(
-    chat_session_t& session,
+    std::shared_ptr<chat_session_t> session,
     std::array<int, game_board_size> game_board_linear,
     bool is_server);
 

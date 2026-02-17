@@ -5,19 +5,31 @@
 #include "kernel.h"
 
 void run_game(
-    chat_session_t& session,
+    std::shared_ptr<chat_session_t> session,
     std::array<int, game_board_size> game_board_linear,
     bool is_server)
-{
-    comm_result_t incoming_message_result;
+{    
     std::vector<uint8_t> incoming_message_raw;
     auto game_ended = false; 
-    auto disc_type = is_server ? client_disc_type : server_disc_type;
+    auto our_disc_type = is_server ? server_disc_type : client_disc_type;
+    auto opponent_disc_type = is_server ? client_disc_type : server_disc_type;
+    auto incoming_message_result = comm_result_t::Success;
 
-    for(incoming_message_result = session.wait_for_message(incoming_message_raw);
-        incoming_message_result == comm_result_t::Success && !game_ended;
-        incoming_message_result = session.wait_for_message(incoming_message_raw))
+    // If we're the server, we must make the first move
+    if (is_server)
     {
+        int chosen_column = rand() % game_board_columns;
+        std::cout << "[server] run_game performed first move on column " << chosen_column << std::endl;
+        game_board_linear[TO_LINEAR(0, chosen_column)] = our_disc_type;
+        session_message_t msg { 0, chosen_column, game_state_t::Playing };
+        session->send_message(msg);
+    }
+
+    // Game loop
+    while(incoming_message_result == comm_result_t::Success && !game_ended)
+    {
+        auto incoming_message_result = session->wait_for_message(incoming_message_raw);
+
         // Deserialize the incoming message
         auto incoming_message = session_message_t::Deserialize(incoming_message_raw);
         std::cout << "Opponent played row " << incoming_message.played_row << ", column " << incoming_message.played_column << std::endl;
@@ -41,7 +53,13 @@ void run_game(
         auto next_move_wins = false;
         auto tie_detected = false;
 
-        auto play_game_result = cuda_play_turn(game_board_linear, disc_type, best_move_row, best_move_column, next_move_wins, tie_detected);
+        auto play_game_result = cuda_play_turn(
+            game_board_linear,
+            our_disc_type,
+            best_move_row,
+            best_move_column,
+            next_move_wins,
+            tie_detected);
 
         if (!play_game_result) {
             std::cout << "CUDA operation failed, aborting!" << std::endl;
@@ -53,12 +71,12 @@ void run_game(
         switch (game_state)
         {
             case game_state_t::Playing:
-                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = disc_type;
+                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = opponent_disc_type;
                 std::cout << "Played row " << best_move_row << ", column " << best_move_column << std::endl;
                 break;
                 
             case game_state_t::PlayerHasWon:
-                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = disc_type;
+                game_board_linear[TO_LINEAR(best_move_row, best_move_column)] = opponent_disc_type;
                 game_ended = true;
                 std::cout << "Played row " << best_move_row << ", column " << best_move_column << " - We have won!" << std::endl;
                 break;
@@ -71,6 +89,6 @@ void run_game(
         
         // Send the message to the remote party
         session_message_t msg { best_move_row, best_move_column, game_state };
-        session.send_message(msg);
+        session->send_message(msg);
     }
 }

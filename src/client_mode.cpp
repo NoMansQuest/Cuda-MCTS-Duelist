@@ -41,9 +41,12 @@ void duelist_client_mode(boost::asio::io_context& io_context, std::string&& ip_a
             std::cout << "Connected (remote endpoint unavailable): " << boost_error_code.message() << "\n";
         }
 
-        chat_session_t session(std::move(socket), nullptr);
-        session.start();    
-        
+        std::shared_ptr<chat_session_t> session = std::make_shared<chat_session_t>(std::move(socket), nullptr);
+        std::cout << "[mode] session created and start() called\n";
+        session->updated_self(session);
+        session->start();    
+
+                
         // As client, we need to wait for the first move by the remote. Server makes the first move...
         std::array<int, game_board_size> game_board_linear{};
         run_game(session, game_board_linear, false);

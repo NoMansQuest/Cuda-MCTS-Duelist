@@ -25,6 +25,7 @@ private:
     std::queue<std::vector<uint8_t>> write_queue_;
     std::mutex queue_mutex_;  // kept as is, though strand handles write serialization...
     std::atomic<bool> is_connected_;
+    std::shared_ptr<chat_session_t> self_ = nullptr;
     void* user_data_ = nullptr;
 
 public:
@@ -47,6 +48,13 @@ public:
     ~chat_session_t()
     {
         this->close();
+    }
+
+    /// @brief Updates the "self_" to a shared pointer to this object by a parent
+    /// @param self Shared pointer pointing to this object
+    void updated_self(std::shared_ptr<chat_session_t> self)
+    {
+        this->self_ = self;
     }
 
     /// @brief Starts the session (well, the reading part)    
