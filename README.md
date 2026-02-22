@@ -3,29 +3,26 @@
 **GPU-accelerated Monte Carlo Tree Search (MCTS) player for Connect 4**, implemented in CUDA C++.  
 Two AI instances (or human + AI) can duel each other via TCP/IP socket communication — perfect for distributed or remote matches.
 
-<p align="center">
-  <img src="https://via.placeholder.com/800x400?text=Connect+4+GPU+MCTS+duel" alt="Connect 4 GPU MCTS visualization" width="800"/>
-  <!-- Replace with real screenshot / gif of gameplay or stats later -->
-</p>
-
 ## Features
 
 - Pure CUDA kernels for massively parallel MCTS simulations (100k–1M+ rollouts/sec on modern GPUs)
 - CPU reference MCTS implementation (for validation, comparison & debugging)
-- TCP/IP networking layer — run AI vs AI, human vs AI, or AI vs AI across machines
+- TCP/IP networking layer used to communicate between the two players (one server, one client)
 - Efficient GPU-friendly board representation and move generation
 - CMake-based cross-platform build (Linux/Windows + NVIDIA GPU)
-- MIT licensed — free to use, modify, learn from
+- MIT licensed - free to use, modify, learn from
 
 ## Why Connect 4 + GPU MCTS?
 
-Connect 4 has a much larger state space and deeper trees than Tic-Tac-Toe → GPU parallelism shines here.  
+Connect 4 has a much larger state space and deeper trees than Tic-Tac-Toe, GPU parallelism shines here.  
 This project demonstrates:
 - High-performance CUDA kernel design
-- MCTS algorithm on GPU (tree traversal, expansion, simulation, backpropagation)
-- Inter-process / networked AI competition setup
+- MCTS algorithm on GPU (tree traversal, expansion, simulation, back-propagation)
+- Inter-process / networked AI competition setup (BOOST::asio)
 
 ## Project Structure
+
+```
 .
 ├── CMakeLists.txt
 ├── README.md
@@ -33,16 +30,17 @@ This project demonstrates:
 ├── .gitignore
 ├── src/
 │   ├── main.cpp            # Entry point, argument parsing, mode selection
-│   ├── chat_session.cpp    # CPU MCTS reference
-│   ├── client_mode.cpp     # Core CUDA MCTS kernels + host code
-│   ├── server_mode.cpp     # Board logic, move generation, win-check on GPU
-│   ├── comm_result.cpp     # TCP server/client implementation
-│   ├── game_engine.cpp     # Shared structs, enums (Player, GameState, Move…)
-│   ├── game_helpers.cpp    # Shared structs, enums (Player, GameState, Move…)
-│   ├── server_mode.cpp     # Shared structs, enums (Player, GameState, Move…)
-│   ├── kernel.cu           # Shared structs, enums (Player, GameState, Move…)
-│   └── session_message.h   # RNG, reduction helpers, etc.
-└── (optional) tests/       # Add later
+│   ├── chat_session.cpp    # Networking layer.
+│   ├── client_mode.cpp     # Client-mode code
+│   ├── server_mode.cpp     # Server-mode code
+│   ├── comm_result.cpp     # Communication result enum
+│   ├── game_engine.cpp     # Game engine, playing the game and invoking CUDA procedures
+│   ├── game_helpers.cpp    # Shared code, helper
+│   ├── kernel.cu           # CUDA kernel and infrastructure code
+│   └── session_message.h   # Object exchanged between server and client (serializable)
+└── (optional) tests/       # To be added later
+
+```
 
 ## Prerequisites
 
@@ -53,31 +51,65 @@ This project demonstrates:
 
 ## Build
 
-```bash
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . --config Release --parallel
-```
+Once the repository is cloned to a local folder, the following commands could be used to configure and build the solution (the following example is for 'Debug' build):
 
-On Windows with Visual Studio, open the generated solution and build Release|x64.
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler"
+cmake --build build --config Debug --parallel
+```
+This would build the project under 'build' folder, where you could then locate the executable.
+
 
 ## Usage Example
 
+Once the solution is compiled, you are ready to run the application. Assuming your terminal is at the root folder of the project, the following command will launch the application as server:
+
 ```bash
-# AI vs AI duel on GPU – most impressive mode
-./cuda_mcts_duelist --mode gpu-ai-vs-ai --simulations 200000 --host localhost --port 5555
-
-# Start AI server (GPU thinker)
-./cuda_mcts_duelist --mode gpu-server --port 5555 --simulations 100000
-
-# Human client connects and plays against it
-./cuda_mcts_duelist --mode human-client --host 127.0.0.1 --port 5555
-
-# CPU-only baseline duel (for comparison)
-./cuda_mcts_duelist --mode cpu-ai-vs-ai --simulations 50000
+.\build\Debug\Cuda_MCTS_Duelist.exe --server --port 60000
 ```
 
-Run with **--help** for full options.
+Once the server is running, the client could then be launched. This client and server will play with each other in turn until either one of the parties win or a tie is reached. To launch the client:
+
+```bash
+.\build\Debug\Cuda_MCTS_Duelist.exe --client --ip 127.0.0.1 --port 60000
+```
+
+To access the help menu, run the application with the **--help** argument.
+
+Once launched, the game will be played in turn and an output similar to the following would be produced:
+
+```
+PS C:\Users\nasse\Source\Repos\Cuda-MCTS-Duelist> .\build\Debug\Cuda_MCTS_Duelist.exe --client --ip 127.0.0.1 --port 60000
+CUDA MCTS Duelist starting...
+Starting as client, connecting to 127.0.0.1:60000...
+Connected to 127.0.0.1:60000
+Opponent played row 5, column 6
+ Played row 5, column 5
+Opponent played row 4, column 6
+ Played row 4, column 5
+Opponent played row 3, column 6
+ Played row 2, column 6
+Opponent played row 5, column 1
+ Played row 3, column 5
+Opponent played row 2, column 5
+ Played row 5, column 3
+Opponent played row 4, column 1
+ Played row 5, column 2
+Opponent played row 5, column 4
+ Played row 4, column 4 - We have won!
+Final state of the game-board:
+
+      1 2 3 4 5 6 7
+     ——————————————
+  1 | - - - - - - -
+  2 | - - - - - - -
+  3 | - - - - - X O
+  4 | - - - - - O X
+  5 | - X - - O O X
+  6 | - X O O X O X
+
+```
+As illustrated above, player 'O' (the client) has won given the four diagonal discs placed from Row-3:Column-7 to Row-6:Column-4.
 
 ## License
 
