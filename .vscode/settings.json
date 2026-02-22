@@ -9,9 +9,11 @@
         "endl",
         "expt",
         "Malloc",
+        "Memcpy",
         "MSVC",
         "nullptr",
         "NVCC",
+        "syncthreads",
         "Wextra",
         "Xcompiler"
     ]

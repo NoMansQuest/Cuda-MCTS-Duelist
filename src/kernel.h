@@ -3,7 +3,7 @@
 
 #include <array>
 
-// #define DEBUG(x) x;
+//#define DEBUG(x) x;
 #define DEBUG(x)
 
 #ifdef __CUDACC__
@@ -22,7 +22,7 @@ __global__ void init_rand_kernel(curandState* d_states, int total_kernels, uint6
 /// @param d_matrix The 6x7 matrix containing the state
 /// @param column Index of the column to check for
 /// @return -1 if no free space is available, free-space row index otherwise
-__host__ __device__ inline int get_free_row_index_for_column(int* d_matrix, int column);
+__device__ inline int get_free_row_index_for_column(int* d_matrix, int column);
 
 /// @brief Checks if the just-inserted disc results in a win
 /// @note We can determine our own disc type by checking the matrix at new_disc location.
@@ -35,18 +35,25 @@ __device__ bool check_if_won(int* d_matrix, int new_disc_row, int new_disc_colum
 /// @brief Kernel predicting next moves for each of the available columns
 /// @note Each kernel determines the column it needs to play first based on its ID modulus 7.
 /// @param d_states cuRAND states (one per thread)
-/// @param d_success_table An array of 7 integers representing number of wins detected if the next disc was to be inserted in that column. 
+/// @param d_success_table An array of integers representing number of wins detected per executed thread.
+/// @param d_loss_table An array of integers representing number of losses detected per executed thread.
 /// @param our_disc_type Our disc type (either 1 or 2).
 __global__ void game_prediction_kernel(
     curandState* d_states,
     int* d_success_table,
+    int* d_loss_table,
     int our_disc_type);
 
 /// @brief Allocate device memory needed by the kernels
 /// @param d_states cuRAND states to be allocated (one per thread)
 /// @param d_success_table An array of seven entries to hold number of successful wins per move per column
+/// @param d_loss_table An array of seven entries to hold number of loses per move per column (i.e. opponent wins)
 /// @param total_threads Total number of threads we intend to run (which determines the size of the 'd_states')
-__host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int totalThreads);
+__host__ cudaError_t allocate_memory(
+    curandState** d_states, 
+    int** d_success_table, 
+    int** d_loss_table,
+    int totalThreads);
 
 /// @brief Free memory allocated on the device
 /// @param d_states cuRAND states

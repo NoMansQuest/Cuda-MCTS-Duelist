@@ -18,14 +18,22 @@ template <typename T> __host__ __device__ constexpr T max(T a, T b) { return (a 
 
 inline __host__ __device__  int get_flat_memory_index(int row, int col) { return ((row * COL_COUNT) + col); } 
 
-// Note: Given that the actual state is identical for all threads, best to have
-// it communicated via 'constant' memory.
+#define IS_TABLE_VALUE_VALID(value)             ((value & 0xF0000000) == 0xC0000000)
+#define SET_TABLE_VALUE_VALID(value)            value |= 0xC0000000;
+#define GET_ROW_FROM_TABLE(value)               ((uint32_t)((value >> 16) & 0xFF))
+#define SET_ROW_TO_TABLE_VALUE(value, row)      value |= (uint32_t)(((row & 0xFF) << 16) & 0x00FF0000)
+#define GET_COL_FROM_TABLE(value)               ((uint32_t)((value >> 8) & 0xFF))
+#define SET_COL_TO_TABLE_VALUE(value, col)      value |= (uint32_t)(((col & 0xFF) << 8) & 0x0000FF00)
+#define GET_MOVES_FROM_TABLE(value)             ((uint32_t)(value & 0xFF))
+#define SET_MOVES_TO_TABLE_VALUE(value, moves)  value |= (uint32_t)((moves & 0xFF) & 0x000000FF)
+
+// Note: Given that the actual state is identical for all threads, best to have it communicated via 'constant' memory.
 __constant__ int connect4_matrix_data[CONNECT4_MATRIX_SIZE];
 
-__host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_table, int totalThreads)
+__host__ cudaError_t allocate_memory(curandState** d_states, int** d_victory_table, int** d_defeat_table, int totalThreads)
 {
     *d_states = nullptr;
-    *d_success_table = nullptr;
+    *d_victory_table = nullptr;
    
     auto status = cudaMalloc(d_states, sizeof(curandState) * totalThreads);
     if (status != cudaSuccess)
@@ -33,23 +41,37 @@ __host__ cudaError_t allocate_memory(curandState** d_states, int** d_success_tab
         return status;
     }
 
-    status = cudaMalloc(d_success_table, sizeof(int) * totalThreads);
+    status = cudaMalloc(d_victory_table, sizeof(int) * totalThreads);
     if (status != cudaSuccess)
     {
         cudaFree(*d_states);
     }
 
+    status = cudaMalloc(d_defeat_table, sizeof(int) * totalThreads);
+    if (status != cudaSuccess)
+    {
+        cudaFree(*d_states);
+        cudaFree(*d_victory_table);
+    }
+
     return status;    
 }
 
-__host__ cudaError_t free_memory(curandState* d_states, int* d_success_table)
+__host__ cudaError_t free_memory(curandState* d_states, int* d_victory_table, int* d_defeat_table)
 {
     auto status = cudaFree(d_states);
     if (status != cudaSuccess)
     {
         return status;
     }
-    status = cudaFree(d_success_table);
+
+    status = cudaFree(d_defeat_table);
+    if (status != cudaSuccess)
+    {
+        return status;
+    }
+
+    status = cudaFree(d_victory_table);
     return status;
 }
 
@@ -138,7 +160,7 @@ __device__ bool check_if_won(int* d_matrix, int new_disc_row, int new_disc_colum
     return false;
 }
 
-__host__ __device__ inline int get_free_row_index_for_column(int* matrix, int column) // Inlining this is a good idea
+__device__ inline int get_free_row_index_for_column(int* matrix, int column) // Inlining this is a good idea
 {
     for (int row = ROW_COUNT - 1; row >= 0; row--)
     {
@@ -150,75 +172,86 @@ __host__ __device__ inline int get_free_row_index_for_column(int* matrix, int co
 
 __global__ void game_prediction_kernel(
     curandState* d_states, 
-    int* d_success_table, 
+    int* d_victory_table, 
+    int* d_defeat_table, 
     int our_disc_type)
 {
     int threadId = blockIdx.x * blockDim.x + threadIdx.x;
-    int threadIdInBlock = threadIdx.x;
     int first_move_column = threadId % COL_COUNT;       
     extern __shared__ int shared_memory[];
 
-    if (threadId == 0) {  // limit output to one print per block
-        DEBUG(printf("[kernel::game_prediction_kernel] Kernel launched: block %d  |  our_disc_type = %d  |  threads = %d\n", blockIdx.x, our_disc_type, blockDim.x))
-    }
-
     // Our slice in shared memory
-    auto shared_mem_matrix = (int*)(shared_memory + (threadIdInBlock * CONNECT4_MATRIX_SIZE));
+    auto shared_mem_matrix = (int*)(shared_memory + (threadIdx.x * CONNECT4_MATRIX_SIZE));
 
     // Copy data from constant memory containing actual state to shared memory
     for (auto hover = 0; hover < CONNECT4_MATRIX_SIZE; hover++)
     {   
         shared_mem_matrix[hover] = *(((int*)connect4_matrix_data) + hover);
     }
-    __syncthreads();
 
-    if (threadId == 0) {  // limit output to one print per block
-        DEBUG(printf("[kernel::game_prediction_kernel] Shared data copied\n"))
-    }
+    __syncthreads();
 
     // We now need to try various randomized combination 
     // with the first move being a disc inserted at column 'targetColumn'
     // Generate a floating point number between 0.0 and 1.0
-    auto game_won = false;
+    auto we_won = false;
+    auto opponent_won = false;
     auto chosen_column = first_move_column;
 
     auto our_turn = true;
-    auto opponent_disc_type = (our_disc_type == 1) ? 2 : 1;
-    auto total_available_slots = 0;
-    auto total_moves_to_success = 0;
+    auto opponent_disc_type = (our_disc_type == 1) ? 2 : 1;    
 
-    for (auto col_hover = 0; col_hover < COL_COUNT; col_hover++)
-    {
-        total_available_slots += (get_free_row_index_for_column(shared_mem_matrix, col_hover) + 1);
-    }
+    auto total_our_moves = 0;
+    auto total_opponent_moves = 0;
 
-    if (threadId == 0) {  // limit output to one print per block
-        DEBUG(printf("[kernel::game_prediction_kernel] Total available slots calculated to %d, launching game loop... \n", total_available_slots))
+    auto opponent_winning_row = 0;
+    auto opponent_winning_column = 0;
+    auto prev_played_column = 0;
+    auto opponent_won_on_free_column = false; 
+    auto first_move_row = get_free_row_index_for_column(shared_mem_matrix, first_move_column);
+
+    uint32_t column_occupied_flag = 0;
+
+    for (auto col_hover = 0; col_hover < COL_COUNT; col_hover++) {
+        auto occupied = get_free_row_index_for_column(shared_mem_matrix, col_hover) == -1;
+        column_occupied_flag |= occupied ? (1 << col_hover) : 0;        
     }
 
     // Could we even play? Is the first-move column full?
-    if (get_free_row_index_for_column(shared_mem_matrix, first_move_column) != -1)
+    if (first_move_row != -1)
     {
         // Note: For the first run, we DO KNOW that the board is NOT full, thanks to check
         // we perform above. 
-        while (total_available_slots > 0)
+        while (column_occupied_flag != 127)
         {   
             // Any empty slots in the column?
             auto free_slot_row_index = get_free_row_index_for_column(shared_mem_matrix, chosen_column);
             if (free_slot_row_index == -1)
-            {                
+            {
+                column_occupied_flag |= (1 << chosen_column);
                 chosen_column = curand(&d_states[threadId]) % COL_COUNT;
                 continue;
             }
 
-            shared_mem_matrix[get_flat_memory_index(free_slot_row_index, chosen_column)] = our_turn ? our_disc_type : opponent_disc_type;
-            total_moves_to_success++;
+            shared_mem_matrix[get_flat_memory_index(free_slot_row_index, chosen_column)] = our_turn ? our_disc_type : opponent_disc_type;            
+            total_our_moves += our_turn ? 1 : 0;
+            total_opponent_moves += !our_turn ? 1 : 0;
             
             // Do we have a win (either ours or opponents)?
             if (check_if_won(shared_mem_matrix, free_slot_row_index, chosen_column))
             {
                 // Either we or the opponent has won, no need to continue the loop
-                game_won = our_turn ? true : false;                 
+                we_won = our_turn;
+                opponent_won = !our_turn;
+                
+                if (opponent_won)
+                {
+                    // We need to remember this to prevent block the opponent from winning
+                    opponent_winning_row = free_slot_row_index;
+                    opponent_winning_column = chosen_column;
+                    opponent_won_on_free_column = prev_played_column != chosen_column;
+                }
+
                 break;
             }
 
@@ -229,30 +262,40 @@ __global__ void game_prediction_kernel(
             // Note: This could be further optimized to only consider empty columns, as the next random value
             // may hit a full column. The objective here is to demonstrate how the GPU could brute-force the 
             // game-board, so this optimization is omitted (among many other possible optimizations).
+            prev_played_column = chosen_column;
             chosen_column = curand(&d_states[threadId]) % COL_COUNT;
-
-            // One more slot was occupied, add this
-            total_available_slots--;
         }
-    }
-
-    if (threadId == 0) {  // limit output to one print per block
-        DEBUG(printf("[kernel::game_prediction_kernel] Game loop complete\n"))
     }
     
     // Ensure all threads reach here first.
     __syncthreads();    
 
-    // Restore randomizer state for the next kernel call. Also update the 'd_success_table'
-
-    if (threadId > 7167 ) {
-        DEBUG(printf("[kernel::game_prediction_kernel] Illegal thread ID detected: %d.\n", threadId))
+    // Update the 'd_victory_table' and 'd_defeat_table'
+    if (we_won)
+    {
+        uint32_t value_to_store = 0;
+        SET_TABLE_VALUE_VALID(value_to_store);
+        SET_ROW_TO_TABLE_VALUE(value_to_store, first_move_row);
+        SET_COL_TO_TABLE_VALUE(value_to_store, first_move_column);
+        SET_MOVES_TO_TABLE_VALUE(value_to_store, total_our_moves);
+        d_victory_table[threadId] = value_to_store;
+        d_defeat_table[threadId] = -1;
     }
-
-    d_success_table[threadId] = game_won ? total_moves_to_success : -1;
-
-    if (threadId == 0) {  // limit output to one print per block
-        DEBUG(printf("[kernel::game_prediction_kernel] updated d_success_table, finishing...\n"))
+    else if (opponent_won && total_opponent_moves == 1 && opponent_won_on_free_column)
+    {
+        uint32_t value_to_store = 0;
+        SET_TABLE_VALUE_VALID(value_to_store);
+        SET_ROW_TO_TABLE_VALUE(value_to_store, opponent_winning_row);
+        SET_COL_TO_TABLE_VALUE(value_to_store, opponent_winning_column);
+        SET_MOVES_TO_TABLE_VALUE(value_to_store, total_opponent_moves);
+        d_defeat_table[threadId] = value_to_store;
+        d_victory_table[threadId] = -1;
+    }
+    else
+    {
+        // It's a tie (neither opponent won nor us).
+        d_victory_table[threadId] = -1;
+        d_defeat_table[threadId] = -1;
     }
 
     // Final synchronization
@@ -267,8 +310,6 @@ bool cuda_play_turn(
     bool& out_next_move_wins,
     bool& out_tie_detected)
 {
-    DEBUG(std::cout << "[cuda_play_turn] entering 'cuda_play_turn'... " << std::endl)
-    
     // Note: Since we have 7 columns to play as our first move,
     // we'll run 1000 threads per move, totalling to 7,000 threads
     int totalThreadsToLaunchTarget = 7000;
@@ -283,25 +324,27 @@ bool cuda_play_turn(
     int totalThreadsToLaunch = blocksPerGrid * threadsPerBlock;
 
     curandState* d_states;
-    int* d_success_table;
-    
-    DEBUG(std::cout << "[cuda_play_turn] Attempting to allocate device memory... " << std::endl)
+    int* d_victory_table;
+    int* d_defeat_table;
 
     // Allocate required memory
-    auto status = allocate_memory(&d_states, &d_success_table, totalThreadsToLaunch);
+    auto status = allocate_memory(
+        &d_states,
+        &d_victory_table,
+        &d_defeat_table,
+        totalThreadsToLaunch);
+
     if (status != cudaSuccess)
     {
-        DEBUG(printf("[cuda_play_turn] Failed to allocate memory; return code: %d\n", status))
+        printf("[cuda_play_turn] Failed to allocate memory; return code: %d\n", status);
         return false;
     }    
-
-    DEBUG(std::cout << "[cuda_play_turn] Attempting to copy data to constant memory ... " << std::endl)
 
     // Copy data from current_board_state to connect4_matrix_data        
     status = cudaMemcpyToSymbol(connect4_matrix_data, current_board_state.data(), current_board_state.size() * sizeof(int));
     if (status != cudaSuccess)
     {
-        DEBUG(printf("[cuda_play_turn] Failed copy matrix data to constant memory: %d\n", status))
+        printf("[cuda_play_turn] Failed copy matrix data to constant memory: %d\n", status);
         return false;
     }        
 
@@ -309,64 +352,114 @@ bool cuda_play_turn(
     auto duration = std::chrono::high_resolution_clock::now().time_since_epoch();
     auto nano_seed = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
 
-    DEBUG(std::cout << "[cuda_play_turn] Executing 'init_rand_kernel' ... " << std::endl)
-
     init_rand_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_states, totalThreadsToLaunch, nano_seed);    
     cudaDeviceSynchronize();
 
-    DEBUG(std::cout << "[cuda_play_turn] Executing 'game_prediction_kernel' ... " << std::endl)
-
     // Now run the game-prediction engine
     auto shared_memory_size = threadsPerBlock * CONNECT4_MATRIX_SIZE * sizeof(int);
-    game_prediction_kernel<<<blocksPerGrid, threadsPerBlock, shared_memory_size>>>(d_states, d_success_table, our_disc_type);
+    game_prediction_kernel<<<blocksPerGrid, threadsPerBlock, shared_memory_size>>>(d_states, d_victory_table, d_defeat_table, our_disc_type);
     cudaDeviceSynchronize();
 
-    DEBUG(std::cout << "[cuda_play_turn] Copying data back to local memory " << std::endl)
+    // We now need to copy the data from d_victory_table to out_success_per_column
+    int* thread_victory_table = new int[totalThreadsToLaunch];
+    int* thread_defeat_table = new int[totalThreadsToLaunch];
 
-    // We now need to copy the data from d_success_table to out_success_per_column
-    int* thread_success_table = new int[totalThreadsToLaunch];
-    cudaMemcpy(thread_success_table, d_success_table, sizeof(int) * totalThreadsToLaunch, cudaMemcpyDeviceToHost);
-
-    DEBUG(std::cout << "[cuda_play_turn] Data copied back to load memory! " << std::endl)
+    cudaMemcpy(thread_victory_table, d_victory_table, sizeof(int) * totalThreadsToLaunch, cudaMemcpyDeviceToHost);
+    cudaMemcpy(thread_defeat_table, d_defeat_table, sizeof(int) * totalThreadsToLaunch, cudaMemcpyDeviceToHost);
 
     // Gather success data
-    int highest_score = -1;
-    int highest_score_column_index = -1;    
+    int our_best_move_row = -1;
+    int our_best_move_column = -1;
+    int our_best_move_score = -1;
+
+    int opponents_best_move_row = -1;
+    int opponents_best_move_column = -1;
+    int opponents_best_score = -1;
 
     for (auto i = 0; i < totalThreadsToLaunch; i++)
     {
+        auto thread_success_valid = IS_TABLE_VALUE_VALID(thread_victory_table[i]);
+        int thread_success_score = GET_MOVES_FROM_TABLE(thread_victory_table[i]);
+        int thread_success_row = GET_ROW_FROM_TABLE(thread_victory_table[i]);
+        int thread_success_col = GET_COL_FROM_TABLE(thread_victory_table[i]);
+
+        auto thread_defeat_valid = IS_TABLE_VALUE_VALID(thread_defeat_table[i]);
+        int thread_defeat_score =  GET_MOVES_FROM_TABLE(thread_defeat_table[i]);
+        int thread_defeat_row = GET_ROW_FROM_TABLE(thread_defeat_table[i]);
+        int thread_defeat_col = GET_COL_FROM_TABLE(thread_defeat_table[i]);
+
         // Is this the winning move?
-        if (highest_score == -1)
+        // Note, we're interested in lowest number of moves (the lower the score, the better)...
+        if ((thread_success_valid) && ((our_best_move_score == -1) || (thread_success_score < our_best_move_score)))
         {
-            highest_score = thread_success_table[i];
-            highest_score_column_index = i % COL_COUNT;
+            our_best_move_row = thread_success_row;
+            our_best_move_column = thread_success_col;
+            our_best_move_score = thread_success_score;
         }
-        else if ((thread_success_table[i] > 0) && thread_success_table[i] < highest_score)
+
+        // We also need to inspect how eay the opponent can win...
+        if ((thread_defeat_valid) && ((opponents_best_score == -1) || (thread_defeat_score < opponents_best_score)))
         {
-            highest_score = thread_success_table[i];
-            highest_score_column_index = i % COL_COUNT;
+            opponents_best_score = thread_defeat_score;
+            opponents_best_move_row = thread_defeat_row;
+            opponents_best_move_column = thread_defeat_col;
         }
     }
     
-    delete[] thread_success_table;
+    delete[] thread_victory_table;
+    delete[] thread_defeat_table;
     
-    out_best_move_column = highest_score_column_index;
-    out_best_move_row = get_free_row_index_for_column(current_board_state.data(), out_best_move_column);
-    out_next_move_wins = highest_score == 1; // We have won!
-    out_tie_detected = highest_score == 0; // No thread was able to win (hence all scores being 0), it means we have a tie on our hands!
-    
-    DEBUG(std::cout << "[cuda_play_turn] Detected highest_score: " << highest_score << " @ column " << highest_score_column_index << std::endl)
-    DEBUG(std::cout << "[cuda_play_turn] Game data compiled, freeing memory... " << std::endl)
-    
+    // Now we decide whether we need to play offensive or defensive.
+    // NOTE: If opponent could defeat us in 1 move, we need to play defensive and
+    //       block the opponent (i.e. insert the disc to their location). Otherwise
+    //       we'll make the move that gives us the highest chance to win
+    out_tie_detected = false;
+    out_next_move_wins = false; // Set to true of our winning score is '1'
+
+    if (opponents_best_score == -1 && our_best_move_score == -1)
+    {
+        // We're a tie
+        out_tie_detected = true;
+    }
+    else if (opponents_best_score == -1 && our_best_move_score != -1)
+    {
+        // We're on the offensive
+        out_best_move_column = our_best_move_column;
+        out_best_move_row = our_best_move_row;
+        out_next_move_wins = our_best_move_score == 1; // This means we have won
+    }
+    else if (opponents_best_score != -1 && our_best_move_score == -1)
+    {
+        // We're going to lose anyway. Fire at the enemy...
+        out_best_move_column = opponents_best_move_column;
+        out_best_move_row = opponents_best_move_row;                
+    }
+    else
+    {
+        // We could both win and lose. If opponent wins in fewer moves than us, block them, else
+        // we need to help ourselves.
+        if (opponents_best_score < our_best_move_score)
+        {
+            out_best_move_column = opponents_best_move_column;
+            out_best_move_row = opponents_best_move_row;
+        }
+        else
+        {
+            // We're on the offensive
+            out_best_move_column = our_best_move_column;
+            out_best_move_row = our_best_move_row;
+            out_next_move_wins = our_best_move_score == 1; // This means we have won
+        }
+    }
+
     // Free memory and return
-    status = free_memory(d_states, d_success_table);
+    status = free_memory(d_states, d_victory_table, d_defeat_table);
     if (status != cudaSuccess)
     {
         // We have crashed...
-        DEBUG(printf("[cuda_play_turn] Failed to free memory, return code: %d\n", status))
+        printf("[cuda_play_turn] Failed to free memory, return code: %d\n", status);
         return false;
     }
 
-    DEBUG(printf("[cuda_play_turn] ** Function call concluded\n"))
     return true;
 }
